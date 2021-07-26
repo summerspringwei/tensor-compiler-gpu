@@ -1,0 +1,15 @@
+
+set(CMAKE_CUDA_COMPILER "/usr/local/cuda-11.0/bin/nvcc")
+project(tensor-compiler-gpu LANGUAGES C CXX CUDA)
+cmake_minimum_required(VERSION 3.5)
+# include(CheckLanguage)
+# check_language(CUDA)
+# set(CMAKE_C_COMPILER "/usr/local/cuda-10.0/bin//nvcc")
+# set(CMAKE_CXX_COMPILER "/usr/local/cuda-10.0/bin//nvcc")
+set(CMAKE_CUDA_ARCHITECTURES 75)
+
+add_executable(reduce_using_reg src/reduce_using_reg.cu)
+add_executable(add src/Add.cu)
+add_executable(reduce src/Reduce.cu)
+add_executable(normalize src/normalize.cu)
+add_executable(sobel src/sobel.cu)
