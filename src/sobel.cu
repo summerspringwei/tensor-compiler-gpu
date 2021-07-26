@@ -23,41 +23,6 @@ cudaError_t checkCuda(cudaError_t result)
   return result;
 }
 
-template<typename T, typename T2>
-__global__ void sobel1x3_row_v2(T2* dst, T* src, T2* kernel, const uint64_t b, const uint64_t c, const uint64_t h, const uint64_t w){
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if(idx > h * w){
-        return;
-    }
-    int col = idx % w;
-    const uint32_t tile_size = 256;
-    __shared__ T buf[tile_size];
-    const uint64_t img_size = c * h * w;
-    const uint64_t plane_size = h * w;
-    
-    for(uint64_t i=0; i<b; ++i) {
-        for(uint64_t j=0; j<c; ++j){
-            int b_col = col % tile_size;
-            int total_offset = i * img_size + j * plane_size;
-            buf[b_col] = src[total_offset + idx];
-            
-            // printf("%d %d\n",col, b_col);
-            __syncthreads();
-            if(col==0){
-                dst[total_offset + idx] = buf[b_col+1] + (buf[b_col] << 1) + buf[b_col+1];
-            }else if(col==w-1){
-                dst[total_offset + idx] = buf[b_col-1] + (buf[b_col] << 1) + buf[b_col-1];
-            }else{
-                if(b_col == 0) {
-                    
-                }else if(b_col==128-1){
-
-                }
-                dst[total_offset + idx] = buf[b_col-1] + (buf[b_col] << 1) + buf[b_col+1];
-            }
-        }
-    }
-}
 
 template<typename T, typename T2>
 __global__ void sobel1x3_row_v1(T2* dst, T* src, T2* kernel, const uint64_t b, const uint64_t c, const uint64_t h, const uint64_t w){
@@ -80,6 +45,79 @@ __global__ void sobel1x3_row_v1(T2* dst, T* src, T2* kernel, const uint64_t b, c
                 dst[total_offset + idx] = src[total_offset - 1] + (src[total_offset] << 1) + src[total_offset - 1];
             }else{
                 dst[total_offset + idx] = src[total_offset - 1] + (src[total_offset] << 1) + src[total_offset + 1];
+            }
+        }
+    }
+}
+
+// 先做内部的，再做边缘的
+// 每个block做image的一行
+template<typename T, typename T2>
+__global__ void sobel1x3_row_v2(T2* dst, T* src, T2* kernel, const uint64_t b, const uint64_t c, const uint64_t h, const uint64_t w){
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    int col = blockIdx.y * blockDim.y + threadIdx.y;
+    if(row >= h || col >= w){
+        return;
+    }
+    
+    const uint64_t img_size = c * h * w;
+    const uint64_t plane_size = h * w;
+    __shared__ T buf[4096];//
+    for(uint64_t i=0; i<b; ++i) {
+        for(uint64_t j=0; j<c; ++j){
+            uint64_t total_offset = i * img_size + j * plane_size + row * w + col;
+            if(row==0 && col > 0 && col < w-1){
+                printf("%lu\n", total_offset);
+            }
+            buf[col] = src[total_offset];
+            
+            __syncthreads();
+            if(col == 0){
+                dst[total_offset] = src[total_offset + 1] + (src[total_offset] << 1) + src[total_offset + 1];
+            }else if(col == w-1){
+                dst[total_offset] = src[total_offset - 1] + (src[total_offset] << 1) + src[total_offset - 1];
+            }else{
+                dst[total_offset] = buf[col - 1] + (buf[col] << 1) + buf[col + 1];
+                if(row==0 && col > 0 && col < w-1){
+                    printf("%d (%d, %d, %d) %d %f\n", col, buf[col-1], buf[col], buf[col+1], total_offset, dst[total_offset]);
+                }
+            }
+        }
+    }
+}
+
+// Reduce the blockDim to reduce the number of blocks
+template<typename T, typename T2>
+__global__ void sobel1x3_row_v3(T2* dst, T* src, T2* kernel, const uint64_t b, const uint64_t c, const uint64_t h, const uint64_t w){
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    int col = blockIdx.y * blockDim.y + threadIdx.y;
+    if(row >= h || col >= w){
+        return;
+    }
+    
+    const uint64_t img_size = c * h * w;
+    const uint64_t plane_size = h * w;
+    const int tile_size = 4;
+    // const int stride = w / tile_size;
+
+    __shared__ T buf[4096];//
+    for(uint64_t i=0; i<b; ++i) {
+        for(uint64_t j=0; j<c; ++j){
+            int total_offset = i * img_size + j * plane_size + row * w + col * tile_size;
+            buf[col * tile_size] = src[total_offset + 0];
+            buf[col * tile_size + 1] = src[total_offset + 1];
+            buf[col * tile_size + 2] = src[total_offset + 2];
+            buf[col * tile_size + 3] = src[total_offset + 3];
+            __syncthreads();
+            if(col == 0){
+                dst[total_offset] = src[total_offset + 1] + (src[total_offset] << 1) + src[total_offset + 1];
+            }else if(col*tile_size == w-1){
+                dst[total_offset] = src[total_offset - 1] + (src[total_offset] << 1) + src[total_offset - 1];
+            }else{
+                dst[total_offset] = buf[col - 1] + (buf[col] << 1) + buf[col + 1];
+                dst[total_offset] = buf[col] + (buf[col + 1] << 1) + buf[col + 2];
+                dst[total_offset] = buf[col + 1] + (buf[col + 2] << 1) + buf[col + 3];
+                dst[total_offset] = buf[col + 2] + (buf[col + 3] << 1) + buf[col + 4];
             }
         }
     }
@@ -159,7 +197,8 @@ __global__ void sobel1x3(T2* dst, T* src, T2* kernel, const uint64_t b, const ui
     const uint64_t plane_size = h * w;
     // Put several rows to a tile
     const int tile_size = 16;
-    __shared__ T buf[tile_size + 2][128];// blockDim.x equal to 128
+    const int block_size = 128;
+    __shared__ T buf[tile_size + 2][block_size];// blockDim.x equal to 128
 
     if((row+1) * tile_size > h || col > w){
         return;
@@ -168,6 +207,14 @@ __global__ void sobel1x3(T2* dst, T* src, T2* kernel, const uint64_t b, const ui
     for(uint64_t i=0; i<b; ++i) {
         for(uint64_t j=0; j<c; ++j){
             int total_offset = i * img_size + j * plane_size;
+            for(int k=0; k<tile_size; ++k){
+                if(col == 0 || col == (w-1)){
+                    continue;
+                }
+                int idx =  total_offset + (row * tile_size + k) * w + col;
+                dst[idx] = src[idx - 1] + (src[idx] << 1) + src[idx + 1];
+            }
+
             // For mirror pad
             if(row==0){
                 dst[total_offset + row * tile_size * w + col] = 0;
@@ -231,32 +278,43 @@ void sobel_cuda(T2* dst, T* src, T2* kernel, std::vector<uint64_t> shape, int lo
     checkCuda( cudaEventCreate(&startEvent) );
     checkCuda( cudaEventCreate(&stopEvent) );
 
-    dim3 threadsPerBlock(block_size);
-    dim3 numBlocks(elements_num / threadsPerBlock.x + 1);
+    dim3 threadsPerBlockK1(1, w);
+    dim3 numBlocksK1(h, 1);
     // Warm up
     checkCuda(cudaEventRecord(startEvent,0) );
-    // sobel1x3_row_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
+    sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
     dim3 threadsPerBlockK2(1, block_size);
     dim3 numBlocksK2(h/16, w/block_size);
-    sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
+    // sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
     checkCuda(cudaEventRecord(stopEvent, 0) );
     checkCuda(cudaEventSynchronize(stopEvent) );
+
+    // CPU record latency
     auto t1 = std::chrono::steady_clock::now();
+    for(int i=0; i<loop_count; ++i) {
+        // sobel1x3_row_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        // sobel3x1_col_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        // sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
+    }
+    cudaDeviceSynchronize();
+    auto t2 = std::chrono::steady_clock::now();
+    double latency = std::chrono::duration<double, std::micro>(t2-t1).count();
+    
+    // GPU record latency
     for(int i=0; i<loop_count; ++i) {
         float ms = 0.0;
         checkCuda( cudaEventRecord(startEvent,0) );
         // sobel1x3_row_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
-        sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
         // sobel3x1_col_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        // sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
         checkCuda( cudaEventRecord(stopEvent,0) );
         checkCuda( cudaEventSynchronize(stopEvent) );
         checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
         total_time += ms;
     }
-    cudaDeviceSynchronize();
-
-    auto t2 = std::chrono::steady_clock::now();
-    double latency = std::chrono::duration<double, std::micro>(t2-t1).count();
+    
     printf("[%f, %f] bandwidth %f\n", latency / loop_count, total_time / loop_count,  elements_num*(sizeof(float) + sizeof(uint32_t)) * 1e3 /1024/1024/ (total_time/loop_count));
     err = cudaGetLastError();
 
@@ -293,7 +351,7 @@ int main(int argc, char** argv)
     float* kernel = (float*)malloc(sizeof(float) * 3);
 
     for(uint32_t i=0; i<img_size; ++i){
-        src[i] = i;
+        src[i] = i % n;
     }
 
     std::vector<uint64_t> shape = {1, 3, n, n};
