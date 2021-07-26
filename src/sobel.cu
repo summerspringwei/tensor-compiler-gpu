@@ -40,11 +40,11 @@ __global__ void sobel1x3_row_v1(T2* dst, T* src, T2* kernel, const uint64_t b, c
             int total_offset = i * img_size + j * plane_size + row * w + col;
             // For mirror pad
             if(col==0){
-                dst[total_offset + idx] = src[total_offset + 1] + (src[total_offset] << 1) + src[total_offset + 1];
+                dst[total_offset + idx] = src[total_offset + 1] + (src[total_offset] * 2) + src[total_offset + 1];
             }else if(col==w-1){
-                dst[total_offset + idx] = src[total_offset - 1] + (src[total_offset] << 1) + src[total_offset - 1];
+                dst[total_offset + idx] = src[total_offset - 1] + (src[total_offset] * 2) + src[total_offset - 1];
             }else{
-                dst[total_offset + idx] = src[total_offset - 1] + (src[total_offset] << 1) + src[total_offset + 1];
+                dst[total_offset + idx] = src[total_offset - 1] + (src[total_offset] * 2) + src[total_offset + 1];
             }
         }
     }
@@ -66,32 +66,60 @@ __global__ void sobel1x3_row_v2(T2* dst, T* src, T2* kernel, const uint64_t b, c
     for(uint64_t i=0; i<b; ++i) {
         for(uint64_t j=0; j<c; ++j){
             uint64_t total_offset = i * img_size + j * plane_size + row * w + col;
-            if(row==0 && col > 0 && col < w-1){
-                printf("%lu\n", total_offset);
-            }
             buf[col] = src[total_offset];
             
             __syncthreads();
             if(col == 0){
-                dst[total_offset] = src[total_offset + 1] + (src[total_offset] << 1) + src[total_offset + 1];
+                dst[total_offset] = src[total_offset + 1] + (src[total_offset] *2 ) + src[total_offset + 1];
             }else if(col == w-1){
-                dst[total_offset] = src[total_offset - 1] + (src[total_offset] << 1) + src[total_offset - 1];
+                dst[total_offset] = src[total_offset - 1] + (src[total_offset] * 2) + src[total_offset - 1];
             }else{
-                dst[total_offset] = buf[col - 1] + (buf[col] << 1) + buf[col + 1];
-                if(row==0 && col > 0 && col < w-1){
-                    printf("%d (%d, %d, %d) %d %f\n", col, buf[col-1], buf[col], buf[col+1], total_offset, dst[total_offset]);
+                dst[total_offset] = buf[col - 1] + (buf[col] * 2) + buf[col + 1];
+            }
+        }
+    }
+}
+
+
+// 先做内部的，再做边缘的
+// 每个block做image的tile_size行
+template<typename T, typename T2>
+__global__ void sobel1x3_row_v4(T2* dst, T* src, T2* kernel, const uint64_t b, const uint64_t c, const uint64_t h, const uint64_t w){
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    int col = blockIdx.y * blockDim.y + threadIdx.y;
+    if(row >= h || col >= w){
+        return;
+    }
+    const int tile_size = 16;
+    const uint64_t img_size = c * h * w;
+    const uint64_t plane_size = h * w;
+    __shared__ T buf[4096];//
+    for(uint64_t i=0; i<b; ++i) {
+        for(uint64_t j=0; j<c; ++j){
+            for(int k=0; k<tile_size; ++k){
+                uint64_t total_offset = i * img_size + j * plane_size + (row * tile_size + k) * w + col;
+                buf[col] = src[total_offset];
+                __syncthreads();
+                if(col == 0){
+                    dst[total_offset] = src[total_offset + 1] + (src[total_offset] * 2) + src[total_offset + 1];
+                }else if(col == w-1){
+                    dst[total_offset] = src[total_offset - 1] + (src[total_offset] * 2) + src[total_offset - 1];
+                }else{
+                    dst[total_offset] = buf[col - 1] + (buf[col] * 2) + buf[col + 1];
                 }
             }
         }
     }
 }
 
+
 // Reduce the blockDim to reduce the number of blocks
+// Performance is not good
 template<typename T, typename T2>
 __global__ void sobel1x3_row_v3(T2* dst, T* src, T2* kernel, const uint64_t b, const uint64_t c, const uint64_t h, const uint64_t w){
     int row = blockIdx.x * blockDim.x + threadIdx.x;
     int col = blockIdx.y * blockDim.y + threadIdx.y;
-    if(row >= h || col >= w){
+    if(row >= h || col >= w / 4){
         return;
     }
     
@@ -104,20 +132,30 @@ __global__ void sobel1x3_row_v3(T2* dst, T* src, T2* kernel, const uint64_t b, c
     for(uint64_t i=0; i<b; ++i) {
         for(uint64_t j=0; j<c; ++j){
             int total_offset = i * img_size + j * plane_size + row * w + col * tile_size;
-            buf[col * tile_size] = src[total_offset + 0];
+            buf[col * tile_size] = src[total_offset];
             buf[col * tile_size + 1] = src[total_offset + 1];
             buf[col * tile_size + 2] = src[total_offset + 2];
             buf[col * tile_size + 3] = src[total_offset + 3];
             __syncthreads();
+            // if(row==0){
+            //     printf("%d\n", total_offset);
+            // }
+            
             if(col == 0){
-                dst[total_offset] = src[total_offset + 1] + (src[total_offset] << 1) + src[total_offset + 1];
-            }else if(col*tile_size == w-1){
-                dst[total_offset] = src[total_offset - 1] + (src[total_offset] << 1) + src[total_offset - 1];
+                dst[total_offset] = src[total_offset + 1] + (src[total_offset] * 2) + src[total_offset + 1];
+                dst[total_offset + 1] = src[total_offset] + (src[total_offset + 1] * 2) + src[total_offset + 2];
+                dst[total_offset + 2] = src[total_offset + 1] + (src[total_offset + 2] * 2) + src[total_offset + 3];
+                dst[total_offset + 3] = src[total_offset + 2] + (src[total_offset + 3] * 2) + src[total_offset + 4];
+            }else if(col*tile_size == w - 4){
+                dst[total_offset] = src[total_offset - 1] + (src[total_offset] * 2) + src[total_offset + 1];
+                dst[total_offset + 1] = src[total_offset] + (src[total_offset + 1] * 2) + src[total_offset + 2];
+                dst[total_offset + 2] = src[total_offset + 1] + (src[total_offset + 2] * 2) + src[total_offset + 3];
+                dst[total_offset + 3] = src[total_offset + 2] + (src[total_offset + 3] * 2) + src[total_offset + 2];
             }else{
-                dst[total_offset] = buf[col - 1] + (buf[col] << 1) + buf[col + 1];
-                dst[total_offset] = buf[col] + (buf[col + 1] << 1) + buf[col + 2];
-                dst[total_offset] = buf[col + 1] + (buf[col + 2] << 1) + buf[col + 3];
-                dst[total_offset] = buf[col + 2] + (buf[col + 3] << 1) + buf[col + 4];
+                dst[total_offset] = buf[col * tile_size - 1] + (buf[col * tile_size] * 2) + buf[col * tile_size + 1];
+                dst[total_offset + 1] = buf[col * tile_size] + (buf[col * tile_size + 1] * 2) + buf[col * tile_size + 2];
+                dst[total_offset + 2] = buf[col * tile_size + 1] + (buf[col * tile_size + 2] * 2) + buf[col * tile_size + 3];
+                dst[total_offset + 3] = buf[col * tile_size + 2] + (buf[col * tile_size + 3] * 2) + buf[col * tile_size + 4];
             }
         }
     }
@@ -212,7 +250,7 @@ __global__ void sobel1x3(T2* dst, T* src, T2* kernel, const uint64_t b, const ui
                     continue;
                 }
                 int idx =  total_offset + (row * tile_size + k) * w + col;
-                dst[idx] = src[idx - 1] + (src[idx] << 1) + src[idx + 1];
+                dst[idx] = src[idx - 1] + (src[idx] * 2) + src[idx + 1];
             }
 
             // For mirror pad
@@ -346,7 +384,7 @@ int main(int argc, char** argv)
     int loop_count = atoi(argv[2]);
     assert((loop_count>0) && (n>0));
     const uint32_t img_size = 3*n*n;
-    uint32_t* src = (uint32_t*)malloc(sizeof(uint32_t) * img_size);
+    float* src = (float*)malloc(sizeof(float) * img_size);
     float* dst = (float*)malloc(sizeof(float) * img_size);
     float* kernel = (float*)malloc(sizeof(float) * 3);
 
@@ -354,14 +392,14 @@ int main(int argc, char** argv)
         src[i] = i % n;
     }
 
-    std::vector<uint64_t> shape = {1, 3, n, n};
+    std::vector<uint64_t> shape = {1, 1, n, n};
     auto t1 = std::chrono::steady_clock::now();
-    sobel_cuda<uint32_t, float>(dst, src, kernel, shape, loop_count);
+    sobel_cuda<float, float>(dst, src, kernel, shape, loop_count);
 
     printf("dst:\n");
     auto num_out = n*n*3;
     for(int i=0; i<(num_out < 16 ? num_out: 16);++i){
-        printf("%f ", dst[i]);
+        printf("<%d %f> ", i, dst[i]);
     }printf("\n");
     auto t2 = std::chrono::steady_clock::now();
     printf("%ld %d %f\n", n, loop_count, std::chrono::duration<double, std::micro>(t2-t1).count() / loop_count);
