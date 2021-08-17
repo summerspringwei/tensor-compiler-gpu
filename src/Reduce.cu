@@ -8,6 +8,7 @@
 
 #include <cuda_runtime.h>
 
+#include "utils.h"
 
 // Convenience function for checking CUDA runtime API results
 // can be wrapped around any runtime API call. No-op in release builds.
@@ -166,18 +167,6 @@ __global__ void reduce_v6(float* a, float* b, const size_t n){
     }
     if(threadIdx.x < 32){
         warpReduce(s_data, threadIdx.x);
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 32];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 16];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 8];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 4];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 2];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 1];
-        // __syncthreads();
     }
     
     if(threadIdx.x == 0){
@@ -210,18 +199,6 @@ __global__ void reduce_v7(float* a, float* b, const size_t n){
     }
     if(threadIdx.x < 32){
         warpReduce(s_data, threadIdx.x);
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 32];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 16];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 8];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 4];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 2];
-        // __syncthreads();
-        // s_data[threadIdx.x] += s_data[threadIdx.x + 1];
-        // __syncthreads();
     }
     
     if(threadIdx.x == 0){
@@ -308,15 +285,112 @@ __global__ void reduce_v9(float* a, float* b, const size_t n){
     }
 }
 
-// __global__ void foo(int a, int b, int *c){
-//     int k = a+b;
-//     d = c[threadIdx.x];
-//     e = c[d];
-// }
 
-void reduce_cuda(float* a, float* b, const size_t n){
-    // Error code to check return values for CUDA calls
+template <unsigned int BLOCK_SIZE>
+__device__ float reduce_on_shared_mem(float* s_data){
+    if(BLOCK_SIZE >= 512){
+        if(threadIdx.x < 256){
+            s_data[threadIdx.x] += s_data[threadIdx.x + 128];
+            __syncthreads();
+        }
+    }
+    if(BLOCK_SIZE >= 256){
+        if(threadIdx.x < 128){
+            s_data[threadIdx.x] += s_data[threadIdx.x + 128];
+            __syncthreads();
+        }
+    }
+    if(BLOCK_SIZE >= 128){
+        if(threadIdx.x < 64){
+            s_data[threadIdx.x] += s_data[threadIdx.x + 64];
+            __syncthreads();
+        }
+    }
+    if(BLOCK_SIZE >= 64){
+        if(threadIdx.x < 32){
+            s_data[threadIdx.x] += s_data[threadIdx.x + 32];
+            __syncthreads();
+        }
+    }
+    // Reduce using registers
+    if(threadIdx.x < 32){
+        float val = s_data[threadIdx.x];
+        #define FULL_MASK 0xffffffff
+        for (int offset = 16; offset > 0; offset /= 2){
+            val += __shfl_down_sync(FULL_MASK, val, offset);
+        }
+        return val;
+    }
+    return 0;
+}
+
+
+template <unsigned int BLOCK_SIZE, unsigned int K>
+__global__ void reduce_sum_to_block(float* dst, float* src, const uint64_t batch, const uint64_t c, const uint64_t h, const uint64_t w){
+    unsigned int tid = blockIdx.x * blockDim.x * K + threadIdx.x;
     
+    __shared__ float s_data[block_size];
+
+    for(uint64_t b_idx=0; b_idx<batch; ++b_idx){
+        uint64_t image_offset = b_idx * c * h * w;
+        for(uint64_t c_idx=0; c_idx<c; ++c_idx){
+            uint64_t plane_offset = c_idx * h * w;
+            uint64_t total_offset = image_offset + plane_offset;
+            s_data[threadIdx.x] = 0;
+            #pragma unroll 2
+            for(int i=0; i<K*blockDim.x; i+=2*blockDim.x){
+                s_data[threadIdx.x] += (src[total_offset + tid + i] + src[total_offset + tid + i + blockDim.x]);
+            }
+            __syncthreads();
+            
+            float val = reduce_on_shared_mem<BLOCK_SIZE>(s_data);
+            
+            if(threadIdx.x == 0){
+                int num_reduced_to_elements = h * w / BLOCK_SIZE / K;
+                dst[(b_idx * c + c_idx) * num_reduced_to_elements + blockIdx.x] = val;
+            }
+        }
+    }
+}
+
+
+// Only optimize for single image inference
+template <unsigned int BLOCK_SIZE>
+__global__ void reduce_sum_to_thread(float* dst, float* src, const uint64_t batch, const uint64_t c, int num_to_reduce){
+    __shared__ float sums[BLOCK_SIZE];
+    if(blockIdx.x == 0){
+        for(uint64_t b_idx=0; b_idx<batch; ++b_idx){
+            uint64_t image_offset = b_idx * c * num_to_reduce;
+            for(uint64_t c_idx=0; c_idx<c; ++c_idx){
+                uint64_t plane_offset = c_idx * num_to_reduce;
+                uint64_t total_offset = image_offset + plane_offset;
+                // Sum up all elements to one thread block
+                sums[threadIdx.x] = src[total_offset + threadIdx.x];
+                int k = num_to_reduce / BLOCK_SIZE;
+                for(int i=1; i<k; ++i){
+                    sums[threadIdx.x] += src[total_offset + i*blockDim.x + threadIdx.x];
+                }
+                __syncthreads();
+                // Sum up all elements in one blocks' shared memory to one float value
+                float val = reduce_on_shared_mem<BLOCK_SIZE>(sums);
+                // Sum up the left values
+                if(threadIdx.x == 0){
+                    for(int j=0; j<(num_to_reduce % blockDim.x); ++j){
+                        val += src[num_to_reduce-1-j];
+                    }
+                    dst[b_idx * c + c_idx] = val;
+                }
+            }
+        }
+    }
+}
+
+
+void reduce_cuda(float* a, float* b, std::vector<uint64_t> shape){
+    // Error code to check return values for CUDA calls
+    uint64_t batch = shape[0], channel = shape[1], height = shape[2], width = shape[3];
+    uint64_t n = get_shape_size(shape);
+    const int K = 4;
     float* d_a = NULL;
     cudaError_t err = cudaSuccess;
     err = cudaMalloc((void **)&d_a, sizeof(float)*n);
@@ -326,7 +400,15 @@ void reduce_cuda(float* a, float* b, const size_t n){
         exit(EXIT_FAILURE);
     }
     float *d_b = NULL;
-    err = cudaMalloc((void **)&d_b, sizeof(float)*n / block_size);
+    int num_reduced_to_elements = n / block_size / K;
+    err = cudaMalloc((void **)&d_b, sizeof(float) * num_reduced_to_elements);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to allocate device vector d_b (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+    float *d_c = NULL;
+    err = cudaMalloc((void **)&d_c, sizeof(float) * batch * channel);
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to allocate device vector d_b (error code %s)!\n", cudaGetErrorString(err));
@@ -342,9 +424,10 @@ void reduce_cuda(float* a, float* b, const size_t n){
     // Launch the arnold CUDA Kernel
     checkCuda( cudaEventRecord(startEvent,0) );
     dim3 threadsPerBlock(block_size);
-    dim3 numBlocks(n / threadsPerBlock.x / 4);
+    dim3 numBlocks(n / block_size / K);
     // reduce_v4<<<numBlocks, threadsPerBlock>>>(d_a, d_b, n);
-    reduce_v9<256, 4><<<numBlocks, threadsPerBlock>>>(d_a, d_b, n);
+    reduce_sum_to_block<block_size, K><<<numBlocks, threadsPerBlock>>>(d_b, d_a, batch, channel, height, width);
+    // reduce_sum_to_thread<block_size><<<numBlocks, threadsPerBlock>>>(d_c, d_b, batch, channel, num_reduced_to_elements);
     checkCuda( cudaEventRecord(stopEvent,0) );
     checkCuda( cudaEventSynchronize(stopEvent) );
     checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
@@ -365,10 +448,11 @@ void reduce_cuda(float* a, float* b, const size_t n){
     // Copy the device result vector in device memory to the host result vector
     // in host memory.
     // printf("Copy output data from the CUDA device to the host memory\n");
-    err = cudaMemcpy(b, d_b, sizeof(float) * n / block_size, cudaMemcpyDeviceToHost);
+    err = cudaMemcpy(b, d_b, sizeof(float) * num_reduced_to_elements, cudaMemcpyDeviceToHost);
 
     cudaFree(d_a);
     cudaFree(d_b);
+    cudaFree(d_c);
 }
 
 
@@ -382,14 +466,16 @@ int main(int argc, char** argv)
     int n = atoi(argv[1]);
     int loop_count = atoi(argv[2]);
     assert((loop_count>0) && (n>0));
-    float* a = (float*)malloc(sizeof(float) * n*n);
+    uint64_t batch = 1, channel = 3, height = n, width = n;
+    std::vector<uint64_t> shape = {batch, channel, height, width};
+    float* a = (float*)malloc(sizeof(float) * get_shape_size(shape));
     float* b = (float*)malloc(sizeof(float) * n*n / block_size);
     for(int i=0; i<n*n;++i){
         a[i] = (float)1;
     }
     auto t1 = std::chrono::steady_clock::now();
     for(int i=0; i<loop_count; ++i){
-        reduce_cuda(a, b, n*n);
+        reduce_cuda(a, b, shape);
     }
     printf("b:\n");
     auto num_out = n*n/block_size;

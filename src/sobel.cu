@@ -8,6 +8,7 @@
 
 #include <cuda_runtime.h>
 
+#include "utils.h"
 
 // Convenience function for checking CUDA runtime API results
 // can be wrapped around any runtime API call. No-op in release builds.
@@ -70,9 +71,11 @@ __global__ void sobel1x3_row_v2(T2* dst, T* src, T2* kernel, const uint64_t b, c
             
             __syncthreads();
             if(col == 0){
-                dst[total_offset] = src[total_offset + 1] + (src[total_offset] *2 ) + src[total_offset + 1];
+                // dst[total_offset] = src[total_offset + 1] + (src[total_offset] *2 ) + src[total_offset + 1];
+                dst[total_offset] = buf[col + 1] + (buf[col] * 2) + buf[col + 1];
             }else if(col == w-1){
-                dst[total_offset] = src[total_offset - 1] + (src[total_offset] * 2) + src[total_offset - 1];
+                // dst[total_offset] = src[total_offset - 1] + (src[total_offset] * 2) + src[total_offset - 1];
+                dst[total_offset] = buf[col - 1] + (buf[col] * 2) + buf[col - 1];
             }else{
                 dst[total_offset] = buf[col - 1] + (buf[col] * 2) + buf[col + 1];
             }
@@ -165,6 +168,7 @@ __global__ void sobel1x3_row_v3(T2* dst, T* src, T2* kernel, const uint64_t b, c
 template<typename T, typename T2>
 __global__ void sobel3x1_col_v1(T2* dst, T* src, T2* kernel, const uint64_t b, const uint64_t c, const uint64_t h, const uint64_t w){
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
     if(idx > h * w){
         return;
     }
@@ -194,11 +198,15 @@ template<typename T, typename T2>
 __global__ void sobel3x1_col_v2(T2* dst, T* src, T2* kernel, const uint64_t b, const uint64_t c, const uint64_t h, const uint64_t w){
     int row = blockIdx.x * blockDim.x + threadIdx.x;
     int col = blockIdx.y * blockDim.y + threadIdx.y;
+    if(blockIdx.x==0 && blockIdx.y && threadIdx.x ==0 && threadIdx.y==0){
+        printf("In kernel %d %d\n", blockDim.x, blockDim.y);
+    }
+    
     // const uint32_t tile_size = 256;
     const uint64_t img_size = c * h * w;
     const uint64_t plane_size = h * w;
     // Put several rows to a tile
-    const int tile_size = 16;
+    const int tile_size = 64;
     __shared__ T buf[tile_size + 2][128];// blockDim.x equal to 128
 
     if((row+1) * tile_size > h || col > w){
@@ -272,15 +280,6 @@ __global__ void sobel1x3(T2* dst, T* src, T2* kernel, const uint64_t b, const ui
 }
 
 
-
-uint64_t get_shape_size(std::vector<uint64_t> shape){
-    uint64_t shape_size = 1;
-    for(auto s: shape){
-        shape_size *= s;
-    }
-    return shape_size;
-}
-
 int block_size = 128;
 
 template<typename T, typename T2>
@@ -320,10 +319,12 @@ void sobel_cuda(T2* dst, T* src, T2* kernel, std::vector<uint64_t> shape, int lo
     dim3 numBlocksK1(h, 1);
     // Warm up
     checkCuda(cudaEventRecord(startEvent,0) );
-    sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
+    // sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
     dim3 threadsPerBlockK2(1, block_size);
-    dim3 numBlocksK2(h/16, w/block_size);
-    // sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
+    dim3 numBlocksK2(h/64, w/block_size);
+    printf("%d %d %d\n", numBlocksK2.x, numBlocksK2.y, numBlocksK2.z);
+    printf("%d %d %d\n", threadsPerBlockK2.x, threadsPerBlockK2.y, threadsPerBlockK2.z);
+    sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
     checkCuda(cudaEventRecord(stopEvent, 0) );
     checkCuda(cudaEventSynchronize(stopEvent) );
 
@@ -331,9 +332,9 @@ void sobel_cuda(T2* dst, T* src, T2* kernel, std::vector<uint64_t> shape, int lo
     auto t1 = std::chrono::steady_clock::now();
     for(int i=0; i<loop_count; ++i) {
         // sobel1x3_row_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
-        sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        // sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
         // sobel3x1_col_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
-        // sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
     }
     cudaDeviceSynchronize();
     auto t2 = std::chrono::steady_clock::now();
@@ -344,9 +345,9 @@ void sobel_cuda(T2* dst, T* src, T2* kernel, std::vector<uint64_t> shape, int lo
         float ms = 0.0;
         checkCuda( cudaEventRecord(startEvent,0) );
         // sobel1x3_row_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
-        sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        // sobel1x3_row_v2<T, T2><<<numBlocksK1, threadsPerBlockK1>>>(d_dst, d_src, d_kernel, n, c, h, w);
         // sobel3x1_col_v1<T, T2><<<numBlocks, threadsPerBlock>>>(d_dst, d_src, d_kernel, n, c, h, w);
-        // sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
+        sobel3x1_col_v2<T, T2><<<numBlocksK2, threadsPerBlockK2>>>(d_dst, d_src, d_kernel, n, c, h, w);
         checkCuda( cudaEventRecord(stopEvent,0) );
         checkCuda( cudaEventSynchronize(stopEvent) );
         checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
@@ -392,7 +393,7 @@ int main(int argc, char** argv)
         src[i] = i % n;
     }
 
-    std::vector<uint64_t> shape = {1, 1, n, n};
+    std::vector<uint64_t> shape = {1, 3, n, n};
     auto t1 = std::chrono::steady_clock::now();
     sobel_cuda<float, float>(dst, src, kernel, shape, loop_count);
 
