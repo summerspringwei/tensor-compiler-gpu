@@ -9,17 +9,24 @@ import _transform_preds as _backend
 
 class _TransformPreds(Function):
     @staticmethod
-    def forward(ctx, coords, center, scale, output_size):
-        output = _backend.transform_preds_cuda_forward(coords, center, scale, output_size)
+    def forward(ctx, coords, center, scale, output_size, num_classes):
+        output = _backend.transform_preds_forward(coords, center, scale, output_size, num_classes)
         return output
 
 
 transform_preds = _TransformPreds.apply
 
 
-class TransformPreds(nn.Module):
+class TransformPredsV1(nn.Module):
     def __init__(self):
-        super().__init__(self)
+        super().__init__()
     
-    def forward(self, coords, center, scale, output_size):
-        return transform_preds(coords, center, scale, output_size)
+    def forward(self, coords, center, scale, output_size, num_classes):
+        return transform_preds(coords, center, scale, output_size, num_classes)
+
+
+class TransformPreds(TransformPredsV1):
+    def __init__(self) -> None:
+        super().__init__()
+    def forward(self, coords, center, scale, output_size, num_classes):
+        return transform_preds(coords, center, scale, output_size, num_classes)

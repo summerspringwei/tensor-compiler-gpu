@@ -1,5 +1,5 @@
 
-#include "affine_transform.hpp"
+#include "affine_transform_cuda.hpp"
 
 void transform_preds(float* target_coords, float* coords, int batch, int n, Point2f center, Point2f scale, Point2f output_size){
     double trans[6];
@@ -11,3 +11,4 @@ void transform_preds(float* target_coords, float* coords, int batch, int n, Poin
     }
     affine_transform(target_coords, coords, transf, batch, n, 1);
 }
+

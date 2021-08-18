@@ -5,7 +5,7 @@
 #include <vector>
 #include <memory>
 
-#include "affine_transform.hpp"
+#include "affine_transform_cuda.hpp"
 
 int test_get_affine_transform_cv(int argc, char*argv[])
 {

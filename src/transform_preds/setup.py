@@ -13,23 +13,25 @@ requirements = ["torch", "torchvision"]
 
 def get_extensions():
     this_dir = os.path.dirname(os.path.abspath(__file__))
-    extensions_dir = os.path.join(this_dir, "transform_preds")
+    extensions_dir = os.path.join(this_dir, "src")
 
-    main_file = ["transform_preds_wrapper.cpp"]
+    # main_file = ["transform_preds_wrapper_.cpp"]
     # source_cpu = glob.glob(os.path.join(extensions_dir, "cpu", "*.cpp"))
-    source_cuda = ["transform_preds.cpp", "affine_transform.cu", "get_affine_transform.cu"]
+    # source_cuda = ["transform_preds.cpp", "affine_transform.cu", "get_affine_transform.cu"]
+    
 
     os.environ["CC"] = "g++"
-    sources = main_file
+    sources = glob.glob(os.path.join(extensions_dir, "*.c*"))
     extension = CppExtension
     extra_compile_args = {"cxx": []}
     define_macros = []
 
     if torch.cuda.is_available() and CUDA_HOME is not None:
         extension = CUDAExtension
-        sources += source_cuda
+        # sources += source_cuda
         define_macros += [("WITH_CUDA", None)]
         extra_compile_args["nvcc"] = [
+            # "CUDA_LAUNCH_BLOCKING=1",
             "-DCUDA_HAS_FP16=1",
             "-D__CUDA_NO_HALF_OPERATORS__",
             "-D__CUDA_NO_HALF_CONVERSIONS__",

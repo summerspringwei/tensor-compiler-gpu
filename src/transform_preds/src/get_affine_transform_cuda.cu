@@ -5,7 +5,7 @@
  *
  */
 
-#include "affine_transform.hpp"
+#include "affine_transform_cuda.hpp"
 
 #include <stdio.h>
 #include <stdlib.h>
