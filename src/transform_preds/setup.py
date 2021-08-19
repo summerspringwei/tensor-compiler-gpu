@@ -25,7 +25,9 @@ def get_extensions():
     extension = CppExtension
     extra_compile_args = {"cxx": []}
     define_macros = []
-
+    extra_compile_args['cxx'].append('-fopenmp')
+    extra_compile_args['cxx'].append('--std=c++11')
+    # extra_compile_args['cxx'].append('-D_GLIBCXX_USE_CXX11_ABI=1')
     if torch.cuda.is_available() and CUDA_HOME is not None:
         extension = CUDAExtension
         # sources += source_cuda
@@ -36,7 +38,11 @@ def get_extensions():
             "-D__CUDA_NO_HALF_OPERATORS__",
             "-D__CUDA_NO_HALF_CONVERSIONS__",
             "-D__CUDA_NO_HALF2_OPERATORS__",
+            "-I/usr/local/cuda-10.1/lib64",
             "-lcublas -lcublasLt -lcudart -lcusolver",
+            "-DDEBUG=1"
+            # "-std=c++11",
+            # "-D_GLIBCXX_USE_CXX11_ABI=1"
         ]
     else:
         raise NotImplementedError('Cuda is not available')
@@ -45,7 +51,7 @@ def get_extensions():
     # extra_compile_args['cxx'].append('-fopenmp')
 
     sources = [os.path.join(extensions_dir, s) for s in sources]
-    include_dirs = [extensions_dir, "/usr/local/cuda-11.0/include"]
+    include_dirs = [extensions_dir, "/usr/local/cuda-10.2/include"]
     ext_modules = [
         extension(
             "_transform_preds",

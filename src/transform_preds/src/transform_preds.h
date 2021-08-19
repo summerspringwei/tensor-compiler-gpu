@@ -3,7 +3,7 @@
 // #include <torch/extension.h>
 #include "transform_preds_wrapper_cuda.hpp"
 
-at::Tensor transform_preds_forward(const at::Tensor &dets,
+at::Tensor transform_preds_forward(const at::Tensor dets,
                     const at::Tensor &center,
                     const at::Tensor &scale,
                     const at::Tensor &output_size,

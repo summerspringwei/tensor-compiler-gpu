@@ -5,6 +5,8 @@
 #include <vector>
 #include <memory>
 
+#include <cuda_runtime.h>
+
 #include "affine_transform_cuda.hpp"
 
 int test_get_affine_transform_cv(int argc, char*argv[])
@@ -71,9 +73,41 @@ void test_transform_preds(){
     }printf("\n");
 }
 
+void test_affine_transform_dets_cuda(){
+    float target_dets[6], dets[6] = {78.93826f, 163.65175f, 78.93826f, 163.65175f, 78.93826f, 163.65175f};
+    float trans[6] = {4.000000, -0.000000, -16.000000, -0.000000, 4.000000, -16.000000};
+    int batch=1, n=1;
+    float* d_target_dets = nullptr;
+    float* d_dets = nullptr;
+    float* d_trans = nullptr;
+    cudaMalloc((void**)&d_target_dets, sizeof(float) * 6);
+    cudaMalloc((void**)&d_dets, sizeof(float) * 6);
+    cudaMalloc((void**)&d_trans, sizeof(float) * 6);
+    cudaMemcpy(d_dets, dets, sizeof(float) * 6, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_trans, trans, sizeof(float) * 6, cudaMemcpyHostToDevice);
+    affine_transform_dets_cuda(d_target_dets, d_dets, d_trans, batch, n);
+    cudaDeviceSynchronize();
+}
+
+void test_affine_transform_dets_torch(){
+    float data_target_dets[6], data_dets[6] = {78.93826f, 163.65175f, 78.93826f, 163.65175f, 78.93826f, 163.65175f};
+    float data_trans[6] = {4.000000, -0.000000, -16.000000, -0.000000, 4.000000, -16.000000};
+    torch::Tensor dets = torch::from_blob(data_dets, {6}).to(torch::kCUDA);;
+    torch::Tensor trans = torch::from_blob(data_trans, {6}).to(torch::kCUDA);;
+    torch::Tensor target_dets = torch::from_blob(data_dets, {6}).to(torch::kCUDA);;
+    int batch=1, n=1;
+
+    affine_transform_dets_cuda(target_dets.data_ptr<float>(), dets.data_ptr<float>(), trans.data_ptr<float>(), batch, n);
+    target_dets.print();
+    cudaDeviceSynchronize();
+}
+
+
 int main(int argc, char** argv){
     // test_get_affine_transform_cv(argc, argv);
     // test_affine_transform(argc, argv);
-    test_transform_preds();
+    // test_transform_preds();
+    // test_affine_transform_dets_cuda();
+    test_affine_transform_dets_torch();
     return 0;
 }

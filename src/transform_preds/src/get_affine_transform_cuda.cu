@@ -433,20 +433,7 @@ void get_affine_transform_cv(double trans[6], Point2f* src, Point2f* dst){
 
 
 #define CUDART_PI_F 3.141592654f
-/*
-center: [240. 320.]
-scale: [512. 672.]
-rot: 0
-output_size: (128, 168)
-src: [[240. 320.]
- [240.  64.]
- [-16.  64.]]
-dst: [[64. 84.]
- [64. 20.]
- [ 0. 20.]]
-trans: [[  4.  -0. -16.]
- [  0.   4. -16.]]
- */
+
 // Test pass
 __global__ void get_affine_transform_kernel(Point2f center, Point2f scale, float rot, Point2f output_size, Point2f shift, Point2f* src, Point2f* dst){
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -502,60 +489,3 @@ void get_affine_transform(double* trans, Point2f center, Point2f scale, float ro
         printf("%f ", trans[i]);
     }printf("\n");
 }
-
-void get_affine_transform(){
-    printf("get_affine_transform\n");
-    Point2f center{240., 320.};
-    Point2f scale{512, 672};
-    float rot = 0;
-    Point2f output_size{128, 168};
-    Point2f shift{0, 0};
-    dim3 threadsPerBlock(32);
-    dim3 numBlocks(1);
-    Point2f src[3], dst[3];
-    Point2f* d_src;
-    Point2f* d_dst;
-    cudaMalloc((Point2f **)&d_src, sizeof(Point2f) * 3);
-    cudaMalloc((Point2f **)&d_dst, sizeof(Point2f) * 3);
-    get_affine_transform_kernel<<<threadsPerBlock, numBlocks>>>(center, scale, rot, output_size, shift, d_src, d_dst);
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(src, d_src, sizeof(Point2f) * 3, cudaMemcpyDeviceToHost);
-    cudaMemcpy(dst, d_dst, sizeof(Point2f) * 3, cudaMemcpyDeviceToHost);
-    printf("src: %f, %f\n %f, %f\n %f, %f\n", src[0].x, src[0].y, src[1].x, src[1].y, src[2].x, src[2].y);
-    printf("dst: %f, %f\n %f, %f\n %f, %f\n", dst[0].x, dst[0].y, dst[1].x, dst[1].y, dst[2].x, dst[2].y);
-    printf("\n");
-    // center.x = 320, center.y = 213;
-    // scale.x = 672, scale.y = 448;
-    // output_size = {672, 448};
-    // get_affine_transform_kernel<<<threadsPerBlock, numBlocks>>>(center, scale, rot, output_size, shift);
-    // cudaDeviceSynchronize();   
-}
-
-void test_solve(){
-double A[] = {
-    64.000000, 84.000000, 1.000000, 0.000000, 0.000000, 0.000000, 
-    64.000000, 20.000000, 1.000000, 0.000000, 0.000000, 0.000000, 
-    0.000000, 20.000000, 1.000000, 0.000000, 0.000000, 0.000000, 
-    0.000000, 0.000000, 0.000000, 64.000000, 84.000000, 1.000000, 
-    0.000000, 0.000000, 0.000000, 64.000000, 20.000000, 1.000000,
-    0.000000, 0.000000, 0.000000, 0.000000, 20.000000, 1.000000
-    };
-    double B[] = {240.000000, 
-    240.000000, 
-    -16.000000, 
-    320.000000, 
-    64.000000, 
-    64.000000};
-    double XC[6];
-    int m = 6;
-    printMatrix(m, m, A, "A");
-    transpose<double>((double*)A, 6);
-    printMatrix(m, m, A, "A");
-    // double A[] = { 1.0, 4.0, 2.0, 2.0, 5.0, 1.0, 3.0, 6.0, 1.0}; 
-    // double B[] = { 6.0, 15.0, 4.0}; 
-    solve_cuda(XC, A, B, 6);
-    // solve_lu(XC, A, B, 6);
-// double X[] = { 1.0, 1.0, 1.0}; // exact solution
-}
-

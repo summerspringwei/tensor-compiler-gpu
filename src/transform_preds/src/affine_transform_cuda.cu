@@ -8,24 +8,109 @@
 
 #include <cuda_runtime.h>
 
-#include "affine_transform_cuda.hpp"
 
-// Convenience function for checking CUDA runtime API results
-// can be wrapped around any runtime API call. No-op in release builds.
-inline
-cudaError_t checkCuda(cudaError_t result)
-{
-#if defined(DEBUG) || defined(_DEBUG)
-  if (result != cudaSuccess) {
-    fprintf(stderr, "CUDA Runtime Error: %s\n", cudaGetErrorString(result));
-    assert(result == cudaSuccess);
-  }
-#endif
-  return result;
+#include "affine_transform_cuda.hpp"
+#include "print_cuda.hpp"
+
+__global__ void copy_dets_with_slice_kernel(float* coords, float* dets, int batch, int n, int slice_from, int slice_to){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= batch * n){
+        return;
+    }
+    const int stride = slice_to - slice_from;
+    for(int i=slice_from; i<slice_to; ++i){
+        coords[stride * idx + i] = dets[6 * idx + i];
+    }
+}
+
+void copy_dets_with_slice_cuda(float* d_coords, float* d_dets, int batch, int n, int slice_from, int slice_to){
+    const int block_size = 128;
+    dim3 threadsPerBlock(block_size);
+    dim3 numBlocks(batch * n / threadsPerBlock.x + 1);
+    copy_dets_with_slice_kernel<<<numBlocks, threadsPerBlock>>>(d_coords, d_dets, batch, n, slice_from, slice_to);
 }
 
 
-const int block_size = 256;
+__global__ void affine_transform_dets_kernel(float* d_target_dets, float* dets, float* trans, int batch, int n){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= batch * n){
+        return;
+    }
+    int stride = 6;
+    // Do slice from 0 to 2
+    float x = dets[stride * idx];
+    float y = dets[stride * idx + 1];
+    printf("idx %d\n", stride * idx);
+    d_target_dets[stride * idx] = trans[0] * x + trans[1] * y + trans[2] * 1;
+    d_target_dets[stride * idx + 1] = trans[3] * x + trans[4] * y + trans[5] * 1;
+    // Do slice from 2 to 4
+    x = dets[stride * idx + 2];
+    y = dets[stride * idx + 3];
+    d_target_dets[stride * idx + 2] = trans[0] * x + trans[1] * y + trans[2] * 1;
+    d_target_dets[stride * idx + 3] = trans[3] * x + trans[4] * y + trans[5] * 1;
+    // Copy rest
+    d_target_dets[stride * idx + 4] = dets[stride * idx + 4];
+    d_target_dets[stride * idx + 5] = dets[stride * idx + 5];
+    printf("dets: %f %f %f %f %f %f\n", 
+        dets[stride * idx], dets[stride * idx + 1], dets[stride * idx + 2],
+        dets[stride * idx + 3], dets[stride * idx + 4], dets[stride * idx + 5]);
+    printf("target_dets: %f %f %f %f %f %f\n", 
+    d_target_dets[stride * idx], d_target_dets[stride * idx + 1], d_target_dets[stride * idx + 2],
+    d_target_dets[stride * idx + 3], d_target_dets[stride * idx + 4], d_target_dets[stride * idx + 5]);
+}
+
+
+void affine_transform_dets_cuda(float* target_dets, float* dets, float* trans, int batch, int n){
+    const int block_size = 128;
+    dim3 threadsPerBlock(block_size);
+    dim3 numBlocks(batch * n / threadsPerBlock.x + 1);
+    affine_transform_dets_kernel<<<numBlocks, threadsPerBlock>>>(target_dets, dets, trans, batch, n);
+    auto err = cudaDeviceSynchronize();
+
+}
+
+
+
+__global__ void affine_transform_dets_kernel(torch::PackedTensorAccessor64<float, 1> d_target_dets, 
+    torch::PackedTensorAccessor64<float, 1> dets, float* trans, int batch, int n){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= batch * n){
+        return;
+    }
+    int stride = 6;
+    // Do slice from 0 to 2
+    float x = dets[stride * idx];
+    float y = dets[stride * idx + 1];
+    
+    d_target_dets[stride * idx] = trans[0] * x + trans[1] * y + trans[2] * 1;
+    d_target_dets[stride * idx + 1] = trans[3] * x + trans[4] * y + trans[5] * 1;
+    // Do slice from 2 to 4
+    x = dets[stride * idx + 2];
+    y = dets[stride * idx + 3];
+    d_target_dets[stride * idx + 2] = trans[0] * x + trans[1] * y + trans[2] * 1;
+    d_target_dets[stride * idx + 3] = trans[3] * x + trans[4] * y + trans[5] * 1;
+    // Copy rest
+    d_target_dets[stride * idx + 4] = dets[stride * idx + 4];
+    d_target_dets[stride * idx + 5] = dets[stride * idx + 5];
+    printf("dets: %f %f %f %f %f %f\n", 
+        dets[stride * idx], dets[stride * idx + 1], dets[stride * idx + 2],
+        dets[stride * idx + 3], dets[stride * idx + 4], dets[stride * idx + 5]);
+    printf("target_dets: %f %f %f %f %f %f\n", 
+    d_target_dets[stride * idx], d_target_dets[stride * idx + 1], d_target_dets[stride * idx + 2],
+    d_target_dets[stride * idx + 3], d_target_dets[stride * idx + 4], d_target_dets[stride * idx + 5]);
+}
+
+
+void affine_transform_dets_cuda(torch::PackedTensorAccessor64<float, 1> target_dets,
+    torch::PackedTensorAccessor64<float, 1> dets, float* trans, int batch, int n){
+    const int block_size = 128;
+    dim3 threadsPerBlock(block_size);
+    dim3 numBlocks(batch * n / threadsPerBlock.x + 1);
+    affine_transform_dets_kernel<<<numBlocks, threadsPerBlock>>>(target_dets, dets, trans, batch, n);
+    checkCuda(cudaDeviceSynchronize(), "affine_transform_dets_cuda");
+}
+
+
 __global__ void affine_transform_kernel(float* target_coords, float* coords, float* trans, int batch, int n){
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if(idx >= batch * n){
@@ -37,6 +122,14 @@ __global__ void affine_transform_kernel(float* target_coords, float* coords, flo
     target_coords[2 * idx + 1] = trans[3] * x + trans[4] * y + trans[5] * 1;
 }
 
+
+void affine_transform_cuda(float* d_target_coords, float* d_coords, float* d_trans, int batch, int n){
+    const int block_size = 256;
+    dim3 threadsPerBlock(block_size);
+    dim3 numBlocks(batch * n / threadsPerBlock.x + 1);
+    affine_transform_kernel<<<numBlocks, threadsPerBlock>>>(d_target_coords, d_coords, d_trans, batch, n);
+    cudaDeviceSynchronize();
+}
 
 /**
  * @brief 
@@ -80,12 +173,11 @@ void affine_transform(float* target_coords, float* coords, float* trans, int bat
     checkCuda( cudaEventCreate(&stopEvent) );
     
     auto t1 = std::chrono::steady_clock::now();
-    dim3 threadsPerBlock(block_size);
-    dim3 numBlocks(batch * n / threadsPerBlock.x + 1);
+    
     // Launch the arnold CUDA Kernel
     checkCuda( cudaEventRecord(startEvent,0));
     for(int i=0; i<loop_count; ++i){
-        affine_transform_kernel<<<numBlocks, threadsPerBlock>>>(d_target_coords, d_coords, d_trans, batch, n);
+        affine_transform_cuda(d_target_coords, d_coords, d_trans, batch, n);
         checkCuda( cudaEventRecord(stopEvent,0));
     }
     checkCuda( cudaEventSynchronize(stopEvent) );
