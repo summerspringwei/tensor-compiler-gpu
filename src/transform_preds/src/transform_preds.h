@@ -1,18 +1,7 @@
 #pragma once
 
-#include "transform_preds_wrapper_cuda.hpp"
-
-at::Tensor transform_preds_forward(const at::Tensor dets,
-                    const at::Tensor &center,
-                    const at::Tensor &scale,
-                    const at::Tensor &output_size,
-                    int num_classes){
-    return transform_preds_cuda_forward(dets,
-                    center,
-                    scale,
-                    output_size,
-                    num_classes);
-}
+#include "cuda/affine_transform_cuda_torch_wrapper.hpp"
+#include "cpu/get_affine_transform_cpu_torch_wrapper.hpp"
 
 at::Tensor affine_transform_dets_forward(const at::Tensor dets,
                     const at::Tensor trans,
@@ -25,6 +14,7 @@ at::Tensor affine_transform_dets_forward(const at::Tensor dets,
         throw ("affine_transform_dets_forward does not support CPU\n");
     }
 }
+
 
 at::Tensor get_affine_transform_forward(at::Tensor center, at::Tensor scale, 
     float rot, at::Tensor output_size, at::Tensor shift, int inv){

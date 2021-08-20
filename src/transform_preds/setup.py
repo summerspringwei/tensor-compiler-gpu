@@ -15,23 +15,25 @@ def get_extensions():
     this_dir = os.path.dirname(os.path.abspath(__file__))
     extensions_dir = os.path.join(this_dir, "src")
 
-    # main_file = ["transform_preds_wrapper_.cpp"]
-    # source_cpu = glob.glob(os.path.join(extensions_dir, "cpu", "*.cpp"))
-    # source_cuda = ["transform_preds.cpp", "affine_transform.cu", "get_affine_transform.cu"]
+    main_file = [os.path.join(extensions_dir, "transform_preds.cpp")]
+    sources_cpu = glob.glob(os.path.join(extensions_dir, "cpu", "*.cpp"))
     
-
     os.environ["CC"] = "g++"
-    sources = glob.glob(os.path.join(extensions_dir, "*.c*"))
     extension = CppExtension
-    extra_compile_args = {"cxx": []}
     define_macros = []
+    extra_compile_args = {"cxx": []}
     extra_compile_args['cxx'].append('-fopenmp')
     extra_compile_args['cxx'].append('--std=c++11')
     # extra_compile_args['cxx'].append('-DDEBUG=1')
-    # extra_compile_args['cxx'].append('-D_GLIBCXX_USE_CXX11_ABI=1')
+    
+    sources = []
+    sources += main_file
+    sources += sources_cpu
+
     if torch.cuda.is_available() and CUDA_HOME is not None:
         extension = CUDAExtension
-        # sources += source_cuda
+        sources_cuda = glob.glob(os.path.join(extensions_dir, "cuda", "*.c*"))
+        sources += sources_cuda
         define_macros += [("WITH_CUDA", None)]
         extra_compile_args["nvcc"] = [
             # "CUDA_LAUNCH_BLOCKING=1",
@@ -42,14 +44,10 @@ def get_extensions():
             "-I/usr/local/cuda-10.2/lib64",
             "-lcublas -lcublasLt -lcudart -lcusolver",
             # "-DDEBUG=1"
-            # "-std=c++11",
-            # "-D_GLIBCXX_USE_CXX11_ABI=1"
         ]
     else:
         raise NotImplementedError('Cuda is not available')
-        
-    
-    # extra_compile_args['cxx'].append('-fopenmp')
+
 
     sources = [os.path.join(extensions_dir, s) for s in sources]
     include_dirs = [extensions_dir, "/usr/local/cuda-10.2/include"]
