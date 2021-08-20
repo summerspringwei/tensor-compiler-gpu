@@ -27,6 +27,7 @@ def get_extensions():
     define_macros = []
     extra_compile_args['cxx'].append('-fopenmp')
     extra_compile_args['cxx'].append('--std=c++11')
+    # extra_compile_args['cxx'].append('-DDEBUG=1')
     # extra_compile_args['cxx'].append('-D_GLIBCXX_USE_CXX11_ABI=1')
     if torch.cuda.is_available() and CUDA_HOME is not None:
         extension = CUDAExtension
@@ -38,9 +39,9 @@ def get_extensions():
             "-D__CUDA_NO_HALF_OPERATORS__",
             "-D__CUDA_NO_HALF_CONVERSIONS__",
             "-D__CUDA_NO_HALF2_OPERATORS__",
-            "-I/usr/local/cuda-10.1/lib64",
+            "-I/usr/local/cuda-10.2/lib64",
             "-lcublas -lcublasLt -lcudart -lcusolver",
-            "-DDEBUG=1"
+            # "-DDEBUG=1"
             # "-std=c++11",
             # "-D_GLIBCXX_USE_CXX11_ABI=1"
         ]

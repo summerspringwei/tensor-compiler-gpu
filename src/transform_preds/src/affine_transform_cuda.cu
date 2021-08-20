@@ -40,7 +40,9 @@ __global__ void affine_transform_dets_kernel(float* d_target_dets, float* dets, 
     // Do slice from 0 to 2
     float x = dets[stride * idx];
     float y = dets[stride * idx + 1];
+    #ifdef DEBUG
     printf("idx %d\n", stride * idx);
+    #endif
     d_target_dets[stride * idx] = trans[0] * x + trans[1] * y + trans[2] * 1;
     d_target_dets[stride * idx + 1] = trans[3] * x + trans[4] * y + trans[5] * 1;
     // Do slice from 2 to 4
@@ -51,12 +53,14 @@ __global__ void affine_transform_dets_kernel(float* d_target_dets, float* dets, 
     // Copy rest
     d_target_dets[stride * idx + 4] = dets[stride * idx + 4];
     d_target_dets[stride * idx + 5] = dets[stride * idx + 5];
+    #ifdef DEBUG
     printf("dets: %f %f %f %f %f %f\n", 
         dets[stride * idx], dets[stride * idx + 1], dets[stride * idx + 2],
         dets[stride * idx + 3], dets[stride * idx + 4], dets[stride * idx + 5]);
     printf("target_dets: %f %f %f %f %f %f\n", 
     d_target_dets[stride * idx], d_target_dets[stride * idx + 1], d_target_dets[stride * idx + 2],
     d_target_dets[stride * idx + 3], d_target_dets[stride * idx + 4], d_target_dets[stride * idx + 5]);
+    #endif
 }
 
 
@@ -66,7 +70,6 @@ void affine_transform_dets_cuda(float* target_dets, float* dets, float* trans, i
     dim3 numBlocks(batch * n / threadsPerBlock.x + 1);
     affine_transform_dets_kernel<<<numBlocks, threadsPerBlock>>>(target_dets, dets, trans, batch, n);
     auto err = cudaDeviceSynchronize();
-
 }
 
 

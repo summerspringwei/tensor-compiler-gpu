@@ -4,9 +4,9 @@
 #include <torch/extension.h>
 #pragma once
 
-inline cudaError_t checkCuda(cudaError_t result, char* msg);
+cudaError_t checkCuda(cudaError_t result, char* msg);
 
-inline cudaError_t checkCuda(cudaError_t result);
+cudaError_t checkCuda(cudaError_t result);
 
 void print_cuda(float* input, long n);
 

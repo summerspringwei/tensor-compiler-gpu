@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <torch/extension.h>
 
-inline cudaError_t checkCuda(cudaError_t result, char* msg)
+cudaError_t checkCuda(cudaError_t result, char* msg)
 {
 #if defined(DEBUG) || defined(_DEBUG)
   if (result != cudaSuccess) {
@@ -14,11 +14,11 @@ inline cudaError_t checkCuda(cudaError_t result, char* msg)
   return result;
 }
 
-inline cudaError_t checkCuda(cudaError_t result)
+cudaError_t checkCuda(cudaError_t result)
 {
 #if defined(DEBUG) || defined(_DEBUG)
   if (result != cudaSuccess) {
-    fprintf(stderr, "In %s CUDA Runtime Error: %s\n", cudaGetErrorString(result));
+    fprintf(stderr, "In CUDA Runtime Error: %s\n", cudaGetErrorString(result));
     assert(result == cudaSuccess);
   }
 #endif

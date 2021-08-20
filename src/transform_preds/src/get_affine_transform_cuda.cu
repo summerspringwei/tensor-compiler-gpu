@@ -399,17 +399,6 @@ void solve_cuda(double* XC, double* A, double *B, int m){
 }
 
 
-template<typename T>
-void transpose(T* a, int m){
-    for(int i=0;i<m; ++i){
-        for(int j=i+1; j<m; ++j){
-            T tmp = a[i*m+j];
-            a[i*m+j] = a[j*m + i];
-            a[j*m+i] = tmp;
-        }
-    }
-}
-
 
 void get_affine_transform_cv(double trans[6], Point2f* src, Point2f* dst){
     double a[6*6], b[6];
@@ -435,7 +424,7 @@ void get_affine_transform_cv(double trans[6], Point2f* src, Point2f* dst){
 #define CUDART_PI_F 3.141592654f
 
 // Test pass
-__global__ void get_affine_transform_kernel(Point2f center, Point2f scale, float rot, Point2f output_size, Point2f shift, Point2f* src, Point2f* dst){
+__global__ void format_affine_transform_kernel(Point2f center, Point2f scale, float rot, Point2f output_size, Point2f shift, Point2f* src, Point2f* dst){
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx != 0){
         return;
@@ -466,6 +455,7 @@ __global__ void get_affine_transform_kernel(Point2f center, Point2f scale, float
     dst[2].x = dst[1].x + dst[1].y - dst[0].y;
     dst[2].y = dst[1].y + dst[0].x - dst[1].x;
     // Get Affine transform using cuda linear system
+    
 }
 
 void get_affine_transform(double* trans, Point2f center, Point2f scale, float rot, Point2f output_size, Point2f shift){
@@ -476,7 +466,7 @@ void get_affine_transform(double* trans, Point2f center, Point2f scale, float ro
     int block_size = 256;
     dim3 threadsPerBlock(block_size);
     dim3 numBlocks(1);
-    get_affine_transform_kernel<<<threadsPerBlock, numBlocks>>>(center, scale, rot, output_size, shift, d_src, d_dst);
+    format_affine_transform_kernel<<<threadsPerBlock, numBlocks>>>(center, scale, rot, output_size, shift, d_src, d_dst);
     cudaDeviceSynchronize();
     Point2f src[3], dst[3];
     cudaMemcpy(src, d_src, sizeof(Point2f) * 3, cudaMemcpyDeviceToHost);
@@ -488,4 +478,6 @@ void get_affine_transform(double* trans, Point2f center, Point2f scale, float ro
     for(int i=0; i<6; ++i){
         printf("%f ", trans[i]);
     }printf("\n");
+    cudaFree(d_src);
+    cudaFree(d_dst);
 }

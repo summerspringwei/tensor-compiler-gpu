@@ -12,9 +12,24 @@ struct Point_
 
 typedef Point_<float> Point2f;
 
+
+template<typename T>
+void transpose(T* a, int m){
+    for(int i=0;i<m; ++i){
+        for(int j=i+1; j<m; ++j){
+            T tmp = a[i*m+j];
+            a[i*m+j] = a[j*m + i];
+            a[j*m+i] = tmp;
+        }
+    }
+}
+
+
 void get_affine_transform_cv(double trans[6], Point2f* src, Point2f* dst);
-void copy_dets_with_slice_cuda(float* d_coords, float* d_dets, int batch, int n, int slice_from, int slice_to);
-void affine_transform(float* target_coords, float* coords, float* trans, int batch, int n, int loop_count);
+void copy_dets_with_slice_cuda(float* d_coords, float* d_dets, 
+    int batch, int n, int slice_from, int slice_to);
+void affine_transform(float* target_coords, float* coords, float* trans, 
+    int batch, int n, int loop_count);
 void affine_transform_dets_cuda(float* target_dets, float* dets, float* trans, int batch, int n);
 void affine_transform_dets_cuda(torch::PackedTensorAccessor64<float, 1> target_dets,
     torch::PackedTensorAccessor64<float, 1> dets, float* trans, int batch, int n);
@@ -23,4 +38,8 @@ void affine_transform_dets_cuda(torch::PackedTensorAccessor64<float, 1> target_d
 void get_affine_transform(double* trans, Point2f center, Point2f scale, float rot, Point2f output_size, Point2f shift);
 void transform_preds(float* target_coords, float* coords, int batch, int n, Point2f center, Point2f scale, Point2f output_size);
 void transform_preds_cuda(float* d_target_coords, float* d_coords, int batch, int n, Point2f center, Point2f scale, Point2f output_size);
+void format_affine_transform_cpu(double* a, double* b, 
+    Point2f center, Point2f scale, float rot, 
+    Point2f output_size, Point2f shift, int inv);
+
 #endif

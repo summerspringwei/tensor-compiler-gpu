@@ -62,7 +62,7 @@ at::Tensor transform_preds_cuda_forward_v1(const at::Tensor &dets,
             (f_dets.data_ptr<scalar_t>())[((i*n) + j) * last_dim + 3] = target_coords[2*(i*n + j) + 1];
         }
     }
-    printf("f_dets device: %d", f_dets.device());
+    
     // auto g_dets = f_dets.to(torch::kCUDA);
     // printf("g_dets device: %d", g_dets.device());
     for(int i=0; i<batch; ++i){
@@ -112,8 +112,11 @@ at::Tensor transform_preds_cuda_forward(const at::Tensor dets,
     auto f_output_size = output_size.data_ptr<scalar_t>();
 
     // Compute affine transform
+    
     double trans[6];
+    // for(int i=0;i<100;i++){
     get_affine_transform(trans, {f_center[0], f_center[1]}, {f_scale[0], f_scale[1]}, 0, {f_output_size[0], f_output_size[1]}, {0., 0.});
+    // }
     float f_trans[6];
     for(int i=0; i<6;++i){
         f_trans[i] = (float)trans[i];
@@ -130,4 +133,45 @@ at::Tensor transform_preds_cuda_forward(const at::Tensor dets,
     cudaDeviceSynchronize();
     cudaFree(d_trans);
     return target_dets;
+}
+
+
+at::Tensor affine_transform_dets_cuda_forward(const at::Tensor dets,
+                    const at::Tensor trans,
+                    int num_classes){
+    int batch = dets.size(0);
+    int n = dets.size(1);
+    int last_dim = dets.size(2);
+    auto target_dets = torch::ones({batch, n, last_dim}, torch::dtype(torch::kFloat32).device(torch::kCUDA));
+    affine_transform_dets_cuda(target_dets.data_ptr<float>(), dets.data_ptr<float>(), trans.data_ptr<float>(), batch, n);
+    // print_cuda(target_dets.data_ptr<float>(), long(batch * n * last_dim));
+    return target_dets;
+}
+
+
+at::Tensor get_affine_transform_cpu_forward(const at::Tensor center, 
+                    const at::Tensor scale, float rot, const at::Tensor output_size, 
+                    const at::Tensor shift, int inv){
+    auto src = torch::zeros({6, 6}, torch::dtype(torch::kFloat64).device(torch::kCPU));
+    auto dst = torch::zeros({6, 1}, torch::dtype(torch::kFloat64).device(torch::kCPU));
+    format_affine_transform_cpu(src.data_ptr<double>(), dst.data_ptr<double>(), 
+                {center.data_ptr<float>()[0], center.data_ptr<float>()[1]},
+                {scale.data_ptr<float>()[0], scale.data_ptr<float>()[0]}, rot, 
+                {output_size.data_ptr<float>()[0], output_size.data_ptr<float>()[1]}, 
+                {shift.data_ptr<float>()[0], shift.data_ptr<float>()[1]}, inv);
+    #ifdef DEBUG
+    for(int i=0;i<6; ++i){
+        printf("[");
+        for(int j=0; j<6; ++j){
+            printf("%f, ", src.data_ptr<double>()[i*6+j]);
+        }printf("],");
+        printf("\n");
+    }
+    for(int i=0;i<6; ++i){
+        printf("%f, ", dst.data_ptr<double>()[i]);
+    }printf("\n");
+    #endif
+    auto inv_src = src.inverse();
+    auto trans = inv_src.matmul(dst);
+    return trans;
 }
