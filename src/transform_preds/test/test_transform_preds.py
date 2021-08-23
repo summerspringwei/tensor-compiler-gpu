@@ -1,25 +1,31 @@
 
-import torch 
+import torch
 import numpy as np
 from transform_preds import AffineTransformDets, GetAffineTransform
 
 
 setup_str = """
-import torch 
+import torch
 from transform_preds import AffineTransformDets, GetAffineTransform
 det_list = []
+all_dets = []
 for i in range(100):
     det_list.append([78.93826, 163.65175, 78.93826,\
         163.65175, 78.93826, 163.65175])
-dets = torch.reshape(torch.tensor(det_list, device=torch.device('cuda')), [1, 100, 6])
+batch = 16
+for i in range(batch):
+    all_dets.append(det_list)
+dets = torch.reshape(torch.tensor(all_dets, device=torch.device('cuda')), [batch, 100, 6])
 trans = torch.reshape(torch.tensor([4., -0., -16.,\
         -0., 4., -16.], device=torch.device('cuda')), [1, 1, 6])
 
 
 def test_affine_transform_dets(dets, trans):
     affine_func = AffineTransformDets()
-    target_dets = affine_func(dets, trans, 80)
-    
+    target_dets = affine_func(dets, trans, 80, 1)
+    # print(target_dets.shape)
+    print(target_dets)
+
 
 def test_get_affine_transform():
     center = torch.tensor([240., 320.])
@@ -41,7 +47,7 @@ bench_transform_preds(dets, trans)
 
 def run_timeit():
     import timeit
-    print(timeit.timeit(run_str, setup=setup_str, number=1000))
+    print(timeit.timeit(run_str, setup=setup_str, number=1))
 
 
 if __name__ == "__main__":

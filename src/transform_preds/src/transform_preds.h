@@ -5,11 +5,11 @@
 
 at::Tensor affine_transform_dets_forward(const at::Tensor dets,
                     const at::Tensor trans,
-                    int num_classes){
+                    int num_classes, float scale){
     if(dets.is_cuda() && trans.is_cuda()){
         return affine_transform_dets_cuda_forward(dets,
                         trans,
-                        num_classes);
+                        num_classes, scale);
     }else{
         throw ("affine_transform_dets_forward does not support CPU\n");
     }

@@ -28,8 +28,8 @@ class GetAffineTransform(nn.Module):
 # Replace for affine_transform in original CenterNet post process
 class _AffineTransformDets(Function):
     @staticmethod
-    def forward(ctx, dets, trans, num_classes):
-        output = _backend.affine_transform_dets_forward(dets, trans, num_classes)
+    def forward(ctx, dets, trans, num_classes, scale=1):
+        output = _backend.affine_transform_dets_forward(dets, trans, num_classes, scale)
         return output
 
 
@@ -39,7 +39,7 @@ affine_transform_dets = _AffineTransformDets.apply
 class AffineTransformDets(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-    def forward(self, dets, trans, num_classes):
-        return affine_transform_dets(dets, trans, num_classes)
+    def forward(self, dets, trans, num_classes, scale=1):
+        return affine_transform_dets(dets, trans, num_classes, scale)
 
 

@@ -23,7 +23,7 @@ void test_affine_transform_dets_cuda(){
     cudaMalloc((void**)&d_trans, sizeof(float) * 6);
     cudaMemcpy(d_dets, dets, sizeof(float) * 6, cudaMemcpyHostToDevice);
     cudaMemcpy(d_trans, trans, sizeof(float) * 6, cudaMemcpyHostToDevice);
-    affine_transform_dets_cuda(d_target_dets, d_dets, d_trans, batch, n);
+    affine_transform_dets_cuda(d_target_dets, d_dets, d_trans, 1.0, batch, n);
     cudaDeviceSynchronize();
 }
 
