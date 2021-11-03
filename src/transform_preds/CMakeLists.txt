@@ -16,9 +16,11 @@ else()
     link_directories("/usr/local/cuda/lib64")
 endif()
 
+include_directories(./src)
+
 add_library(affine_transform src/cuda/affine_transform_cuda.cu src/cuda/print_cuda.cu)
 add_library(get_affine_transform src/cpu/get_affine_transform_cpu.cpp)
 
-add_executable(test_affine_transform_dets_cuda src/cuda/test_affine_transform_dets_cuda.cpp.cpp)
+add_executable(test_affine_transform_dets_cuda src/cuda/test_affine_transform_dets_cuda.cpp)
 
 target_link_libraries(test_affine_transform_dets_cuda affine_transform cudart)

@@ -49,6 +49,20 @@ def run_timeit():
     import timeit
     print(timeit.timeit(run_str, setup=setup_str, number=1))
 
+setup_str = """
+import timeit
+times = []
+"""
+run_str = """
+# times.append(timeit.timeit())
+a = timeit.timeit()
+"""
+
+def bench_timeit():
+    import timeit 
+    print(timeit.timeit(run_str, setup=setup_str, number=1000))
+
 
 if __name__ == "__main__":
-    run_timeit()
+    # run_timeit()
+    bench_timeit()
