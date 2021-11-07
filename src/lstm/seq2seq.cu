@@ -10,6 +10,8 @@ __device__ __forceinline__ float sigmoid(float x){
     return (1.0f / (1+exp(-x)));
 }
 
+
+// TODO(xiachunwei) using more threads per block to do GEMV
 // num_layers: 8, timesteps: 100
 // inputs_timestep: [1, 100, 128], outputs_timestep[1, 100, 128]
 // input_wavefront: [1, 8, 128], state_wavefront: [1, 8, 128], weight_*_wavefront [32, 128, 128]
@@ -29,60 +31,63 @@ extern "C" __global__ void seq2seq_encoder(float* inputs_timestep, float* output
     __shared__ float shared_weight[num_hidden * kHalfHidden];
     float * weight_ptr = NULL;
     float* is_ptr = NULL;
+
+    // Feed inputs_timestep[0] to input_wavefront
+    if(blockIdx.x < 2){
+        input_wavefront[blockIdx.x * gridDim.x + threadIdx.x]=inputs_timestep[0 * num_hidden + blockIdx.x * gridDim.x + threadIdx.x];
+    }
     // Load weight to shared memory
+    // Weight layout: [hidden_to_reduce(128), hidden_to_out(64)]
     if(blockIdx.x < gridDim.x / 2){
         weight_ptr=weight_input_wavefront;
         is_ptr = input_wavefront;
-        // Weight layout: [hidden_to_reduce(128), hidden_to_out(64)]
+        #pragma unroll
         for(int i=0; i<num_hidden; ++i){
             shared_weight[i * kHalfHidden + threadIdx.x] = weight_ptr[blockIdx.x / 2 * num_hidden * num_hidden + i * num_hidden + (blockIdx.x % 2) * kHalfHidden + threadIdx.x];
         }
     }else{
         weight_ptr = weight_state_wavefront;
         is_ptr = h_wavefront;
+        #pragma unroll
         for(int i=0; i<num_hidden; ++i){
             shared_weight[i * kHalfHidden + threadIdx.x] = weight_ptr[(blockIdx.x-gridDim.x/2) / 2 * num_hidden * num_hidden + i * num_hidden + (blockIdx.x % 2) * kHalfHidden + threadIdx.x];
         }
     }
     
-    // if(blockIdx.x==0 && threadIdx.x == 0){
-    //     for(int i=0; i<num_hidden; ++i){
-    //         printf("%f ",shared_weight[i * kHalfHidden + threadIdx.x]);
-    //     }printf("\n");
-    // }
-    // if((blockIdx.x==0 && threadIdx.x == 0) || (blockIdx.x==64 && threadIdx.x == 0)){
-    //     printf("<%d, %d>  is_ptr %f\n", blockIdx.x, threadIdx.x, is_ptr[0]);
-    // }
     __syncthreads();
 
-    for(int step=num_layer-1; step<num_timestep-(num_layer-1); ++step){
+    for(int step=0; step<num_timestep; ++step){
         // Compute gate, for even block compute first half gate, for odd block compute second half gate
         float thread_output = 0;
-        if(blockIdx.x < gridDim.x / 2){
+        bool cond_input = blockIdx.x < min(step+1, (int)num_layer) * kNumGatesInLstmCell;
+        bool cond_state = (blockIdx.x >= gridDim.x / 2) && (blockIdx.x < gridDim.x / 2 + min(step+1, (int)num_layer) * kNumGatesInLstmCell);
+        if(cond_input){
+            #pragma unroll
             for(int i=0; i<num_hidden; ++i){
                 thread_output = thread_output + \
                     is_ptr[blockIdx.x / kNumGatePart * num_hidden + i] * \
                         shared_weight[i * kHalfHidden + threadIdx.x];
             }
-        }else{
+        }else if(cond_state){
+            #pragma unroll
             for(int i=0; i<num_hidden; ++i){
                 thread_output = thread_output + \
                     is_ptr[(blockIdx.x-gridDim.x/2) / kNumGatePart * num_hidden + i] * \
                         shared_weight[i * kHalfHidden + threadIdx.x];
             }
         }
+        // TODO(xiachunwei) Can be replaced by atomicAdd
         // save thread_output to global memory
         output_buffer[blockIdx.x * kHalfHidden + threadIdx.x] = thread_output;
         __threadfence();
-        
         // Let first 64 block compute input_gate+hidden_gate+bias
-        if(blockIdx.x < gridDim.x / 2){
+        if(cond_input){
             output_buffer[blockIdx.x * kHalfHidden + threadIdx.x] = output_buffer[blockIdx.x * kHalfHidden + threadIdx.x] + \
                 output_buffer[(blockIdx.x + gridDim.x / 2) * kHalfHidden + threadIdx.x] + bias[(blockIdx.x % 2) * kHalfHidden + threadIdx.x];
         }
         __threadfence();
         // Each block compute a cell thus we need num_layer blocks
-        if(blockIdx.x < gridDim.x/2 && blockIdx.x % kNumGatesInLstmCell==0){
+        if(cond_input && blockIdx.x % kNumGatesInLstmCell==0){
             float* i = output_buffer + (blockIdx.x / kNumGatesInLstmCell * 4 + 0) * num_hidden;
             float* j = output_buffer + (blockIdx.x / kNumGatesInLstmCell * 4 + 1) * num_hidden;
             float* f = output_buffer + (blockIdx.x / kNumGatesInLstmCell * 4 + 2) * num_hidden;
@@ -102,18 +107,20 @@ extern "C" __global__ void seq2seq_encoder(float* inputs_timestep, float* output
             //     printf("step: %d h_wavefront: %f \n", step, h_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + threadIdx.x]);
             // }
             // Feed inputs[step] to input_wavefront
-            if(blockIdx.x==0){
-                input_wavefront[0*num_hidden + threadIdx.x] = inputs_timestep[step*num_hidden + threadIdx.x];
-                input_wavefront[0*num_hidden + kHalfHidden + threadIdx.x] = inputs_timestep[step*num_hidden + kHalfHidden + threadIdx.x];
-            }// Shift h
-            else if(blockIdx.x / kNumGatesInLstmCell < num_layer - 1){
+            // Shift h
+            if(blockIdx.x / kNumGatesInLstmCell < num_layer - 1){
                 input_wavefront[(blockIdx.x / kNumGatesInLstmCell + 1) * num_hidden + threadIdx.x] = h_wavefront[(blockIdx.x / kNumGatesInLstmCell) * num_hidden + threadIdx.x];
                 input_wavefront[(blockIdx.x / kNumGatesInLstmCell + 1) * num_hidden + kHalfHidden + threadIdx.x] = h_wavefront[(blockIdx.x / kNumGatesInLstmCell) * num_hidden + kHalfHidden + threadIdx.x];
-            }else if(blockIdx.x / kNumGatesInLstmCell == num_layer - 1){
+            }else if(blockIdx.x==0){
+                input_wavefront[0*num_hidden + threadIdx.x] = inputs_timestep[step*num_hidden + threadIdx.x];
+                input_wavefront[0*num_hidden + kHalfHidden + threadIdx.x] = inputs_timestep[step*num_hidden + kHalfHidden + threadIdx.x];
+            }else if((step >= num_layer-1) && blockIdx.x / kNumGatesInLstmCell == num_layer - 1){
                 outputs_timestep[(step+1-num_layer)*num_hidden + threadIdx.x]=h_wavefront[(blockIdx.x / kNumGatesInLstmCell) * num_hidden + threadIdx.x];
                 outputs_timestep[(step+1-num_layer)*num_hidden + kHalfHidden + threadIdx.x]=h_wavefront[(blockIdx.x / kNumGatesInLstmCell) * num_hidden + kHalfHidden + threadIdx.x];
             }
         }
         __threadfence();
     }
+    // TODO(xiachunwei) Do the last part of wavefront
+
 }

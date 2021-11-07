@@ -58,7 +58,7 @@ void benchmark_lstm_wavefront_magic(int argc, char** argv){
     const int num_layer = atoi(argv[2]);
     const int num_timestep = atoi(argv[3]);
     const int num_hidden = atoi(argv[4]);
-    int steps = 1000;
+    int steps = 100000;
     if(argc > 5){
         steps = atoi(argv[5]);
     }
