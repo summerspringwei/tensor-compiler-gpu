@@ -10,29 +10,14 @@
 #include <cuda_runtime.h>
 #include <cuda_profiler_api.h>
 
-#include "../cuda_utils.h"
+#include "cuda_utils.h"
 
-extern "C" __global__ void lstm_wavefront_magic(float* inputs_timestep, float* outputs_timestep, 
-    float* c_wavefront, float* h_wavefront, float* input_wavefront,
-    float* weight_input_wavefront, float* weight_state_wavefront, float* bias,
-    float* output_buffer);
 
 extern "C" __global__ void seq2seq_encoder(float* inputs_timestep, float* outputs_timestep, 
     float* c_wavefront, float* h_wavefront, float* input_wavefront,
     float* weight_input_wavefront, float* weight_state_wavefront, float* bias,
     float* output_buffer);
 
-// #define FUNC_CALL lstm_wavefront_magic<<<numBlocks, threadsPerBlock>>>(\
-//     d_inputs_timestep, d_outputs_timestep, \
-//     d_c_wavefront, d_h_wavefront, d_input_wavefront, \
-//     d_weight_input_wavefront, d_weight_state_wavefront, d_bias, \
-//     d_output_buffer);
-
-// #define FUNC_CALL seq2seq_encoder<batch, num_layer, num_timestep, num_hidden><<<numBlocks, threadsPerBlock>>>(\
-//     d_inputs_timestep, d_outputs_timestep, \
-//     d_c_wavefront, d_h_wavefront, d_input_wavefront, \
-//     d_weight_input_wavefront, d_weight_state_wavefront, d_bias, \
-//     d_output_buffer);
 
 #define FUNC_CALL seq2seq_encoder<<<numBlocks, threadsPerBlock>>>(\
     d_inputs_timestep, d_outputs_timestep, \
@@ -131,12 +116,13 @@ void benchmark_lstm_wavefront_magic(int argc, char** argv){
     FUNC_CALL
     cudaDeviceSynchronize();
     checkCuda(cudaMemcpy(output_timestep.data(), d_outputs_timestep, sizeof(float) * output_timestep.size() , cudaMemcpyDeviceToHost));
-    printf("%ld\n", output_timestep.size());
-    for(int i=0;i<num_timestep; ++i){
-        for(int j=0;j<num_hidden;++j){
-            printf("%f ", output_timestep[i*num_hidden + j]);
-        }printf("\n");
-    }
+    // printf("%ld\n", output_timestep.size());
+    // printf("Output:\n");
+    // for(int i=0;i<num_timestep; ++i){
+    //     for(int j=0;j<num_hidden;++j){
+    //         printf("%f ", output_timestep[i*num_hidden + j]);
+    //     }printf("\n");
+    // }
     auto result = cudaGetLastError();                                                   
     CUDA_CHECK_RESULT
 

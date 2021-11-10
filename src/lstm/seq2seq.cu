@@ -1,126 +1,166 @@
 
-#include <stdio.h>
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <sstream>
+
+#include <cstdlib>
 
 #include <cuda_runtime.h>
 #include <cuda_profiler_api.h>
 
-#include "cuda_runtime.h"
+#include "../cuda_utils.h"
+#include "lstm_reuse_shared_memory.h"
+#include "lstm_utils.h"
 
-__device__ __forceinline__ float sigmoid(float x){
-    return (1.0f / (1+exp(-x)));
+
+// #define SEQ2SEQ_ENCODER lstm_reuse_shared_memory<1, 8, 128, 100><<<dim3(128, 1, 1), dim3(64, 1, 1)>>>(\
+//     encoder_data.d_inputs_timestep, encoder_data.d_outputs_timestep, \
+//     encoder_data.d_c_wavefront, encoder_data.d_h_wavefront, encoder_data.d_input_wavefront, \
+//     encoder_data.d_weight_input_wavefront, encoder_data.d_weight_state_wavefront, encoder_data.d_bias, \
+//     encoder_data.d_output_buffer);
+
+// #define SEQ2SEQ_DECODER lstm_reuse_shared_memory<1, 4, 128, 30><<<dim3(64, 1, 1), dim3(64, 1, 1)>>>(\
+//     decoder_data.d_inputs_timestep, decoder_data.d_outputs_timestep, \
+//     decoder_data.d_c_wavefront, decoder_data.d_h_wavefront, decoder_data.d_input_wavefront, \
+//     decoder_data.d_weight_input_wavefront, decoder_data.d_weight_state_wavefront, decoder_data.d_bias, \
+//     decoder_data.d_output_buffer);
+// numBlocksPerSm*deviceProp.multiProcessorCount
+#define SEQ2SEQ_ENCODER  { \
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), kernelArgs, 32*1024);}; 
+
+#define SEQ2SEQ_DECODER  {int dev = 0, numThreads = 64, numBlocksPerSm=0; \
+    cudaDeviceProp deviceProp; \
+    cudaGetDeviceProperties(&deviceProp, dev); \
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, lstm_reuse_shared_memory<1, 4, 128, 30>, numThreads, 0); \
+    printf("OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);\
+    void *kernelArgs[] = { decoder_data.d_inputs_timestep, decoder_data.d_outputs_timestep, \
+        decoder_data.d_c_wavefront, decoder_data.d_h_wavefront, decoder_data.d_input_wavefront, \
+        decoder_data.d_weight_input_wavefront, decoder_data.d_weight_state_wavefront, decoder_data.d_bias, \
+        decoder_data.d_output_buffer }; \
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(numBlocksPerSm*deviceProp.multiProcessorCount, 1, 1), dim3(64, 1, 1), kernelArgs, 32*1024);};
+
+
+#define CUDA_CHECK_RESULT if (result != cudaSuccess) \
+    { \
+        const char* msg = cudaGetErrorString(result); \
+        std::stringstream safe_call_ss; \
+        safe_call_ss << "\nerror: " << " failed with error" \
+                    << "\nfile: " << __FILE__ << "\nline: " << __LINE__ << "\nmsg: " << msg; \
+        throw std::runtime_error(safe_call_ss.str()); \
+    };
+
+
+void benchmark_seq2seq(int argc, char** argv){
+    const int batch = 1;
+    const int encoder_num_layer = 8, encoder_num_timestep = 100, encoder_num_hidden = 128;
+    const int decoder_num_layer = 4, decoder_num_timestep = 30, decoder_num_hidden = 128; 
+    int steps = 10000;
+    if(argc > 1){
+        steps = atoi(argv[1]);
+    }
+    
+    int dev = 0;
+    int supportsCoopLaunch = 0;
+    cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, dev);
+    if(supportsCoopLaunch){
+        printf("Device support CoopLaunch\n");
+    }
+    auto encoder_data = create_lstm_data(batch, encoder_num_layer, encoder_num_hidden, encoder_num_timestep);
+    auto decoder_data = create_lstm_data(batch, decoder_num_layer, decoder_num_hidden, decoder_num_timestep);
+
+    // Set shared memory for SM
+    // int maxbytes = 1024*64;
+    // cudaFuncSetAttribute(lstm_reuse_shared_memory<1, 8, 128, 100>, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
+    // int carveout = 50; // prefer shared memory capacity 50% of maximum
+    // Named Carveout Values:
+    // carveout = cudaSharedmemCarveoutDefault;   //  (-1)
+    // carveout = cudaSharedmemCarveoutMaxL1;     //   (0)
+    // auto carveout = cudaSharedmemCarveoutMaxShared; // (100)
+    // cudaFuncSetAttribute(lstm_wavefront_magic, cudaFuncAttributePreferredSharedMemoryCarveout, carveout);
+    int numThreads = 64, numBlocksPerSm=0; \
+    cudaDeviceProp deviceProp; \
+    cudaGetDeviceProperties(&deviceProp, dev); \
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, lstm_reuse_shared_memory<1, 8, 128, 100>, numThreads, 0); \
+    printf("OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);\
+    void *encoder_kernelArgs[] = { (void *)&(encoder_data.d_inputs_timestep), (void *)&(encoder_data.d_outputs_timestep), \
+        (void *)&(encoder_data.d_c_wavefront), (void *)&(encoder_data.d_h_wavefront), (void *)&(encoder_data.d_input_wavefront), \
+        (void *)&(encoder_data.d_weight_input_wavefront), (void *)&(encoder_data.d_weight_state_wavefront), (void *)&(encoder_data.d_bias), \
+        (void *)&(encoder_data.d_output_buffer) };
+    void *decoder_kernelArgs[] = { (void *)&(decoder_data.d_inputs_timestep), (void *)&(decoder_data.d_outputs_timestep), \
+        (void *)&(decoder_data.d_c_wavefront), (void *)&(decoder_data.d_h_wavefront), (void *)&(decoder_data.d_input_wavefront), \
+        (void *)&(decoder_data.d_weight_input_wavefront), (void *)&(decoder_data.d_weight_state_wavefront), (void *)&(decoder_data.d_bias), \
+        (void *)&(decoder_data.d_output_buffer) }; 
+    
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), encoder_kernelArgs, 32*1024);
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(64, 1, 1), dim3(64, 1, 1), decoder_kernelArgs, 32*1024);
+    // SEQ2SEQ_DECODER
+    cudaDeviceSynchronize();
+    
+    std::vector<float> encoder_output_timestep(batch * encoder_num_timestep * encoder_num_hidden);
+    checkCuda(cudaMemcpy(encoder_output_timestep.data(), encoder_data.d_outputs_timestep, sizeof(float) * encoder_output_timestep.size() , cudaMemcpyDeviceToHost));
+    std::vector<float> decoder_output_timestep(batch * decoder_num_timestep * decoder_num_hidden);
+    checkCuda(cudaMemcpy(decoder_output_timestep.data(), decoder_data.d_outputs_timestep, sizeof(float) * decoder_output_timestep.size() , cudaMemcpyDeviceToHost));
+    // printf("%ld\n", encoder_output_timestep.size());
+    printf("Outputs\n");
+    for(int i=0;i<encoder_num_timestep; ++i){
+        for(int j=0;j<encoder_num_hidden;++j){
+            printf("%f ", encoder_output_timestep[i*encoder_num_hidden + j]);
+        }printf("\n");
+    }
+    auto result = cudaGetLastError();
+    CUDA_CHECK_RESULT
+    
+    // Warm up
+    for (int i=0; i<steps; i++) {
+        // SEQ2SEQ_ENCODER
+        cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), encoder_kernelArgs, 32*1024);
+        cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(64, 1, 1), dim3(64, 1, 1), decoder_kernelArgs, 32*1024);
+        // SEQ2SEQ_DECODER
+        // printf("Iter %d\n", i);
+        cudaDeviceSynchronize();
+    }
+    result = cudaGetLastError();                                                   
+    CUDA_CHECK_RESULT
+     
+    // GPU time measurement
+    float ms_max = std::numeric_limits<float>::min();
+    float ms_min = std::numeric_limits<float>::max();
+    float ms_total, ms_i;
+    cudaEvent_t start_i, stop_i;
+    cudaEventCreate(&start_i);
+    cudaEventCreate(&stop_i);
+    ms_total = 0;
+
+    cudaProfilerStart();
+    for (int i_=0; i_<steps; i_++)
+    {
+        cudaEventRecord(start_i, 0);
+        // SEQ2SEQ_DECODER
+        cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), encoder_kernelArgs, 32*1024);
+        cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(64, 1, 1), dim3(64, 1, 1), decoder_kernelArgs, 32*1024);
+        // SEQ2SEQ_ENCODER
+        cudaEventRecord(stop_i, 0);
+        cudaEventSynchronize(stop_i);
+        cudaEventElapsedTime(&ms_i, start_i, stop_i);
+        cudaDeviceSynchronize();
+        // printf("Iteration time %f ms\n", ms_i);
+        ms_total += ms_i;
+        if (ms_i > ms_max)  ms_max = ms_i;
+        if (ms_i < ms_min) ms_min = ms_i;
+    }
+    cudaProfilerStop();
+    cudaDeviceSynchronize();
+    printf("Summary: [min, max, mean] = [%f, %f, %f] ms\n",  ms_min, ms_max, ms_total / steps);
+    result = cudaGetLastError();
+    CUDA_CHECK_RESULT
+
+    encoder_data.free();
+    decoder_data.free();
 }
 
-
-// TODO(xiachunwei) using more threads per block to do GEMV
-// num_layers: 8, timesteps: 100
-// inputs_timestep: [1, 100, 128], outputs_timestep[1, 100, 128]
-// input_wavefront: [1, 8, 128], state_wavefront: [1, 8, 128], weight_*_wavefront [32, 128, 128]
-// c: [1, 8, 128], output_buffer:[1, 8, 128]
-// two block computes one gate, therefore each block compute [1, 1, 128] * [1, 128, 64]
-// gridDim(64*2, ), blockDim(64, ) 
-// template<int batch, int num_layer, int num_hidden, int num_timestep>
-extern "C" __global__ void seq2seq_encoder(float* inputs_timestep, float* outputs_timestep, 
-    float* c_wavefront, float* h_wavefront, float* input_wavefront,
-    float* weight_input_wavefront, float* weight_state_wavefront, float* bias,
-    float* output_buffer){
-    const size_t batch=1, num_layer=8, num_timestep=100, num_hidden=128;
-    const int kNumGatePart = 2;
-    const int kNumGatesInLstmCell = 8;
-    const int kHalfHidden = num_hidden / kNumGatePart;
-    
-    __shared__ float shared_weight[num_hidden * kHalfHidden];
-    float * weight_ptr = NULL;
-    float* is_ptr = NULL;
-
-    // Feed inputs_timestep[0] to input_wavefront
-    if(blockIdx.x < 2){
-        input_wavefront[blockIdx.x * gridDim.x + threadIdx.x]=inputs_timestep[0 * num_hidden + blockIdx.x * gridDim.x + threadIdx.x];
-    }
-    // Load weight to shared memory
-    // Weight layout: [hidden_to_reduce(128), hidden_to_out(64)]
-    if(blockIdx.x < gridDim.x / 2){
-        weight_ptr=weight_input_wavefront;
-        is_ptr = input_wavefront;
-        #pragma unroll
-        for(int i=0; i<num_hidden; ++i){
-            shared_weight[i * kHalfHidden + threadIdx.x] = weight_ptr[blockIdx.x / 2 * num_hidden * num_hidden + i * num_hidden + (blockIdx.x % 2) * kHalfHidden + threadIdx.x];
-        }
-    }else{
-        weight_ptr = weight_state_wavefront;
-        is_ptr = h_wavefront;
-        #pragma unroll
-        for(int i=0; i<num_hidden; ++i){
-            shared_weight[i * kHalfHidden + threadIdx.x] = weight_ptr[(blockIdx.x-gridDim.x/2) / 2 * num_hidden * num_hidden + i * num_hidden + (blockIdx.x % 2) * kHalfHidden + threadIdx.x];
-        }
-    }
-    
-    __syncthreads();
-
-    for(int step=0; step<num_timestep; ++step){
-        // Compute gate, for even block compute first half gate, for odd block compute second half gate
-        float thread_output = 0;
-        bool cond_input = blockIdx.x < min(step+1, (int)num_layer) * kNumGatesInLstmCell;
-        bool cond_state = (blockIdx.x >= gridDim.x / 2) && (blockIdx.x < gridDim.x / 2 + min(step+1, (int)num_layer) * kNumGatesInLstmCell);
-        if(cond_input){
-            #pragma unroll
-            for(int i=0; i<num_hidden; ++i){
-                thread_output = thread_output + \
-                    is_ptr[blockIdx.x / kNumGatePart * num_hidden + i] * \
-                        shared_weight[i * kHalfHidden + threadIdx.x];
-            }
-        }else if(cond_state){
-            #pragma unroll
-            for(int i=0; i<num_hidden; ++i){
-                thread_output = thread_output + \
-                    is_ptr[(blockIdx.x-gridDim.x/2) / kNumGatePart * num_hidden + i] * \
-                        shared_weight[i * kHalfHidden + threadIdx.x];
-            }
-        }
-        // TODO(xiachunwei) Can be replaced by atomicAdd
-        // save thread_output to global memory
-        output_buffer[blockIdx.x * kHalfHidden + threadIdx.x] = thread_output;
-        __threadfence();
-        // Let first 64 block compute input_gate+hidden_gate+bias
-        if(cond_input){
-            output_buffer[blockIdx.x * kHalfHidden + threadIdx.x] = output_buffer[blockIdx.x * kHalfHidden + threadIdx.x] + \
-                output_buffer[(blockIdx.x + gridDim.x / 2) * kHalfHidden + threadIdx.x] + bias[(blockIdx.x % 2) * kHalfHidden + threadIdx.x];
-        }
-        __threadfence();
-        // Each block compute a cell thus we need num_layer blocks
-        if(cond_input && blockIdx.x % kNumGatesInLstmCell==0){
-            float* i = output_buffer + (blockIdx.x / kNumGatesInLstmCell * 4 + 0) * num_hidden;
-            float* j = output_buffer + (blockIdx.x / kNumGatesInLstmCell * 4 + 1) * num_hidden;
-            float* f = output_buffer + (blockIdx.x / kNumGatesInLstmCell * 4 + 2) * num_hidden;
-            float* o = output_buffer + (blockIdx.x / kNumGatesInLstmCell * 4 + 3) * num_hidden;
-            c_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + threadIdx.x] = 
-                c_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + threadIdx.x] * sigmoid(f[threadIdx.x] + 1.0) +
-                sigmoid(i[threadIdx.x]) * tan(j[threadIdx.x]);
-            c_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + kHalfHidden + threadIdx.x] = 
-                c_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + kHalfHidden + threadIdx.x] * sigmoid(f[kHalfHidden + threadIdx.x] + 1.0) +
-                sigmoid(i[kHalfHidden + threadIdx.x]) * tan(j[kHalfHidden + threadIdx.x]);
-            h_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + threadIdx.x] = 
-                tan(c_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + threadIdx.x]) * sigmoid(o[threadIdx.x]);
-            h_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + kHalfHidden + threadIdx.x] = 
-                tan(c_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + kHalfHidden + threadIdx.x]) * sigmoid(o[kHalfHidden + threadIdx.x]);
-            // if(blockIdx.x==0 && threadIdx.x == 0){
-            //     printf("step: %d c_wavefront: %f \n", step, c_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + threadIdx.x]);
-            //     printf("step: %d h_wavefront: %f \n", step, h_wavefront[blockIdx.x / kNumGatesInLstmCell * num_hidden + threadIdx.x]);
-            // }
-            // Feed inputs[step] to input_wavefront
-            // Shift h
-            if(blockIdx.x / kNumGatesInLstmCell < num_layer - 1){
-                input_wavefront[(blockIdx.x / kNumGatesInLstmCell + 1) * num_hidden + threadIdx.x] = h_wavefront[(blockIdx.x / kNumGatesInLstmCell) * num_hidden + threadIdx.x];
-                input_wavefront[(blockIdx.x / kNumGatesInLstmCell + 1) * num_hidden + kHalfHidden + threadIdx.x] = h_wavefront[(blockIdx.x / kNumGatesInLstmCell) * num_hidden + kHalfHidden + threadIdx.x];
-            }else if(blockIdx.x==0){
-                input_wavefront[0*num_hidden + threadIdx.x] = inputs_timestep[step*num_hidden + threadIdx.x];
-                input_wavefront[0*num_hidden + kHalfHidden + threadIdx.x] = inputs_timestep[step*num_hidden + kHalfHidden + threadIdx.x];
-            }else if((step >= num_layer-1) && blockIdx.x / kNumGatesInLstmCell == num_layer - 1){
-                outputs_timestep[(step+1-num_layer)*num_hidden + threadIdx.x]=h_wavefront[(blockIdx.x / kNumGatesInLstmCell) * num_hidden + threadIdx.x];
-                outputs_timestep[(step+1-num_layer)*num_hidden + kHalfHidden + threadIdx.x]=h_wavefront[(blockIdx.x / kNumGatesInLstmCell) * num_hidden + kHalfHidden + threadIdx.x];
-            }
-        }
-        __threadfence();
-    }
-    // TODO(xiachunwei) Do the last part of wavefront
-
+int main(int argc, char** argv) {
+    benchmark_seq2seq(argc, argv);
+    return 0;
 }
