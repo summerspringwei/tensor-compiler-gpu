@@ -27,20 +27,23 @@
 //     decoder_data.d_weight_input_wavefront, decoder_data.d_weight_state_wavefront, decoder_data.d_bias, \
 //     decoder_data.d_output_buffer);
 // numBlocksPerSm*deviceProp.multiProcessorCount
+
+// #define SEQ2SEQ_ENCODER  { \
+//     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), encoder_kernelArgs, 32*1024);;}; 
+// #define SEQ2SEQ_DECODER { \
+//     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(64, 1, 1), dim3(64, 1, 1), decoder_kernelArgs, 32*1024);}
+
+// kNumGatePart=2
 #define SEQ2SEQ_ENCODER  { \
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), kernelArgs, 32*1024);}; 
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v2<1, 8, 128, 100>, dim3(128, 1, 1), dim3(128, 1, 1), encoder_kernelArgs, 32*1024);};
+#define SEQ2SEQ_DECODER { \
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v2<1, 4, 128, 30>, dim3(64, 1, 1), dim3(128, 1, 1), decoder_kernelArgs, 32*1024);};
 
-#define SEQ2SEQ_DECODER  {int dev = 0, numThreads = 64, numBlocksPerSm=0; \
-    cudaDeviceProp deviceProp; \
-    cudaGetDeviceProperties(&deviceProp, dev); \
-    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, lstm_reuse_shared_memory<1, 4, 128, 30>, numThreads, 0); \
-    printf("OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);\
-    void *kernelArgs[] = { decoder_data.d_inputs_timestep, decoder_data.d_outputs_timestep, \
-        decoder_data.d_c_wavefront, decoder_data.d_h_wavefront, decoder_data.d_input_wavefront, \
-        decoder_data.d_weight_input_wavefront, decoder_data.d_weight_state_wavefront, decoder_data.d_bias, \
-        decoder_data.d_output_buffer }; \
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(numBlocksPerSm*deviceProp.multiProcessorCount, 1, 1), dim3(64, 1, 1), kernelArgs, 32*1024);};
-
+// kNumGatePart=4
+// #define SEQ2SEQ_ENCODER  { \
+//     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v2<1, 8, 128, 100>, dim3(256, 1, 1), dim3(128, 1, 1), encoder_kernelArgs, 16*1024);};
+// #define SEQ2SEQ_DECODER { \
+//     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v2<1, 4, 128, 30>, dim3(128, 1, 1), dim3(128, 1, 1), decoder_kernelArgs, 16*1024);};
 
 #define CUDA_CHECK_RESULT if (result != cudaSuccess) \
     { \
@@ -93,9 +96,8 @@ void benchmark_seq2seq(int argc, char** argv){
         (void *)&(decoder_data.d_weight_input_wavefront), (void *)&(decoder_data.d_weight_state_wavefront), (void *)&(decoder_data.d_bias), \
         (void *)&(decoder_data.d_output_buffer) }; 
     
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), encoder_kernelArgs, 32*1024);
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(64, 1, 1), dim3(64, 1, 1), decoder_kernelArgs, 32*1024);
-    // SEQ2SEQ_DECODER
+    SEQ2SEQ_ENCODER
+    SEQ2SEQ_DECODER
     cudaDeviceSynchronize();
     
     std::vector<float> encoder_output_timestep(batch * encoder_num_timestep * encoder_num_hidden);
@@ -103,21 +105,19 @@ void benchmark_seq2seq(int argc, char** argv){
     std::vector<float> decoder_output_timestep(batch * decoder_num_timestep * decoder_num_hidden);
     checkCuda(cudaMemcpy(decoder_output_timestep.data(), decoder_data.d_outputs_timestep, sizeof(float) * decoder_output_timestep.size() , cudaMemcpyDeviceToHost));
     // printf("%ld\n", encoder_output_timestep.size());
-    printf("Outputs\n");
-    for(int i=0;i<encoder_num_timestep; ++i){
-        for(int j=0;j<encoder_num_hidden;++j){
-            printf("%f ", encoder_output_timestep[i*encoder_num_hidden + j]);
-        }printf("\n");
-    }
+    // printf("Outputs\n");
+    // for(int i=0;i<encoder_num_timestep; ++i){
+    //     for(int j=0;j<encoder_num_hidden;++j){
+    //         printf("%f ", encoder_output_timestep[i*encoder_num_hidden + j]);
+    //     }printf("\n");
+    // }
     auto result = cudaGetLastError();
     CUDA_CHECK_RESULT
-    
+    return;
     // Warm up
     for (int i=0; i<steps; i++) {
-        // SEQ2SEQ_ENCODER
-        cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), encoder_kernelArgs, 32*1024);
-        cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(64, 1, 1), dim3(64, 1, 1), decoder_kernelArgs, 32*1024);
-        // SEQ2SEQ_DECODER
+        SEQ2SEQ_ENCODER
+        SEQ2SEQ_DECODER
         // printf("Iter %d\n", i);
         cudaDeviceSynchronize();
     }
@@ -137,10 +137,8 @@ void benchmark_seq2seq(int argc, char** argv){
     for (int i_=0; i_<steps; i_++)
     {
         cudaEventRecord(start_i, 0);
-        // SEQ2SEQ_DECODER
-        cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 8, 128, 100>, dim3(128, 1, 1), dim3(64, 1, 1), encoder_kernelArgs, 32*1024);
-        cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory<1, 4, 128, 30>, dim3(64, 1, 1), dim3(64, 1, 1), decoder_kernelArgs, 32*1024);
-        // SEQ2SEQ_ENCODER
+        SEQ2SEQ_DECODER
+        SEQ2SEQ_ENCODER
         cudaEventRecord(stop_i, 0);
         cudaEventSynchronize(stop_i);
         cudaEventElapsedTime(&ms_i, start_i, stop_i);
