@@ -65,6 +65,7 @@ CuLstmData create_lstm_data(int batch, int num_layer, int num_hidden, int num_ti
     float* d_inputs_timestep=nullptr, *d_outputs_timestep=nullptr;
     float* d_input_wavefront=nullptr, *d_c_wavefront=nullptr, *d_h_wavefront=nullptr;
     float* d_weight_input_wavefront=nullptr, *d_weight_state_wavefront=nullptr, *d_output_buffer=nullptr, *d_bias=nullptr;
+    
     cudaMalloc((void**)&d_inputs_timestep, sizeof(float) * input_timestep.size());
     cudaMalloc((void**)&d_outputs_timestep, sizeof(float) * output_timestep.size());
     cudaMalloc((void**)&d_input_wavefront, sizeof(float) * input_wavefront.size());

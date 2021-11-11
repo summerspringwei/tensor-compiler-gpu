@@ -35,15 +35,16 @@
 
 // kNumGatePart=2
 #define SEQ2SEQ_ENCODER  { \
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v2<1, 8, 128, 100>, dim3(128, 1, 1), dim3(128, 1, 1), encoder_kernelArgs, 32*1024);};
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v3<1, 8, 128, 100>, dim3(128, 1, 1), dim3(128, 1, 1), encoder_kernelArgs, 32*1024);};
 #define SEQ2SEQ_DECODER { \
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v2<1, 4, 128, 30>, dim3(64, 1, 1), dim3(128, 1, 1), decoder_kernelArgs, 32*1024);};
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v3<1, 4, 128, 30>, dim3(64, 1, 1), dim3(128, 1, 1), decoder_kernelArgs, 32*1024);};
 
 // kNumGatePart=4
 // #define SEQ2SEQ_ENCODER  { \
 //     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v2<1, 8, 128, 100>, dim3(256, 1, 1), dim3(128, 1, 1), encoder_kernelArgs, 16*1024);};
 // #define SEQ2SEQ_DECODER { \
 //     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v2<1, 4, 128, 30>, dim3(128, 1, 1), dim3(128, 1, 1), decoder_kernelArgs, 16*1024);};
+
 
 #define CUDA_CHECK_RESULT if (result != cudaSuccess) \
     { \
@@ -72,7 +73,9 @@ void benchmark_seq2seq(int argc, char** argv){
     }
     auto encoder_data = create_lstm_data(batch, encoder_num_layer, encoder_num_hidden, encoder_num_timestep);
     auto decoder_data = create_lstm_data(batch, decoder_num_layer, decoder_num_hidden, decoder_num_timestep);
-
+    int* d_arr_sync=nullptr;
+    cudaMalloc((void**)&d_arr_sync, 8*encoder_num_layer*encoder_num_hidden*sizeof(int));
+    cudaMemset(d_arr_sync, 0, 8*encoder_num_layer*encoder_num_hidden*sizeof(int));
     // Set shared memory for SM
     // int maxbytes = 1024*64;
     // cudaFuncSetAttribute(lstm_reuse_shared_memory<1, 8, 128, 100>, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
@@ -90,11 +93,15 @@ void benchmark_seq2seq(int argc, char** argv){
     void *encoder_kernelArgs[] = { (void *)&(encoder_data.d_inputs_timestep), (void *)&(encoder_data.d_outputs_timestep), \
         (void *)&(encoder_data.d_c_wavefront), (void *)&(encoder_data.d_h_wavefront), (void *)&(encoder_data.d_input_wavefront), \
         (void *)&(encoder_data.d_weight_input_wavefront), (void *)&(encoder_data.d_weight_state_wavefront), (void *)&(encoder_data.d_bias), \
-        (void *)&(encoder_data.d_output_buffer) };
+        (void *)&(encoder_data.d_output_buffer)
+        , (void *)&(d_arr_sync)
+        };
     void *decoder_kernelArgs[] = { (void *)&(decoder_data.d_inputs_timestep), (void *)&(decoder_data.d_outputs_timestep), \
         (void *)&(decoder_data.d_c_wavefront), (void *)&(decoder_data.d_h_wavefront), (void *)&(decoder_data.d_input_wavefront), \
         (void *)&(decoder_data.d_weight_input_wavefront), (void *)&(decoder_data.d_weight_state_wavefront), (void *)&(decoder_data.d_bias), \
-        (void *)&(decoder_data.d_output_buffer) }; 
+        (void *)&(decoder_data.d_output_buffer)
+        , (void *)&(d_arr_sync)
+        }; 
     
     SEQ2SEQ_ENCODER
     SEQ2SEQ_DECODER

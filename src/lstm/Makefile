@@ -256,7 +256,7 @@ ifeq ($(dbg),1)
 else
       BUILD_TYPE := release
 endif
-NVCCFLAGS += -g -G
+NVCCFLAGS += -g -G -O2
 BUILD_TYPE := debug
 
 ALL_CCFLAGS :=
@@ -356,7 +356,7 @@ endif
 # Target rules
 all: build
 
-build: seq2seq
+build: seq2seq lstm_main
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -377,7 +377,16 @@ run: build
 	$(EXEC) ./seq2seq
 
 clean:
-	rm -f seq2seq seq2seq.o
-	rm -rf ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/seq2seq
+	rm -f seq2seq seq2seq.o lstm_main lstm_main.o
+	rm -rf ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/seq2seq ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/lstm_main
 
-clobber: clean
+lstm_main.o:lstm_main.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+
+lstm_main: lstm_main.o
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+	$(EXEC) mkdir -p ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
+	$(EXEC) cp $@ ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
+
+run: build
+	$(EXEC) ./lstm_main

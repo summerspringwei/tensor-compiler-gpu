@@ -192,12 +192,13 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
         if(cond_input){
             #pragma unroll
             for(int i=0; i<kPartHidden; ++i){
-                thread_output += is_ptr[blockIdx.x / (kNumInputGate * kNumGatePart) * num_hidden + threadIdx.x] * shared_weight[i*num_hidden + threadIdx.x];
+                // thread_output += is_ptr[blockIdx.x / (kNumInputGate * kNumGatePart) * num_hidden + threadIdx.x] * shared_weight[i*num_hidden + threadIdx.x]; Error
+                thread_output += is_ptr[blockIdx.x / (kNumInputGate * kNumGatePart) * num_hidden + (blockIdx.x % (kNumInputGate * kNumGatePart)) * kPartHidden + i] * shared_weight[i*num_hidden + threadIdx.x];
             }
         }else if(cond_state){
             #pragma unroll
             for(int i=0; i<kPartHidden; ++i){
-                thread_output += is_ptr[((blockIdx.x - gridDim.x / 2) / (kNumInputGate * kNumGatePart)) * num_hidden + threadIdx.x] * shared_weight[i*num_hidden + threadIdx.x];
+                thread_output += is_ptr[((blockIdx.x - gridDim.x / 2) / (kNumInputGate * kNumGatePart)) * num_hidden + ((blockIdx.x - gridDim.x/2) % (kNumInputGate * kNumGatePart)) * kPartHidden + i] * shared_weight[i*num_hidden + threadIdx.x];
             }
         }
         
@@ -250,12 +251,14 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
 
 
 // Each block compute num_hidden/kNumGatePart fma then all blocks sync
-// Using atomicAdd to build spin lock to sync between blocks
+// Use atomicAdd to build spin lock to sync between blocks
+// Use memory space starts from `output_buffer + gridDim.x * num_hidden` to do sync
+// in this way we can save a parameter
 template<int batch, int num_layer, int num_hidden, int num_timestep>
     __global__ void lstm_reuse_shared_memory_v3(float* inputs_timestep, float* outputs_timestep, 
     float* c_wavefront, float* h_wavefront, float* input_wavefront,
     float* weight_input_wavefront, float* weight_state_wavefront, float* bias,
-    float* output_buffer, float* arr_sync){
+    float* output_buffer, int* arr_sync){
     
     const int kNumInputGate = 4;
     const int kNumGatesInLstmCell = 8;
@@ -296,7 +299,7 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
     }
     output_buffer[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x] = 0;
     __syncthreads();
-    
+    cooperative_groups::grid_group grid = cooperative_groups::this_grid();
     for(int step=0; step<num_timestep+num_layer-1; ++step){
         float thread_output = 0;
         // Blocks of first half gridDim.x compute the input gate
@@ -322,18 +325,23 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
         if(cond_input || cond_state){
             // Store thread_output to global memory
             atomicAdd(output_buffer + ((blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x), thread_output);
-            __threadfence();
-            atomicAdd(arr_sync+(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x, 1);
+            // __threadfence();    
+            // if(threadIdx.x==0){
+            //     printf("step: %d, blockIdx.x: %d, output_buf: %f\n", step, blockIdx.x, output_buffer[((blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x)]);
+            // }
+            atomicAdd(arr_sync + (blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x, 1);
+            printf("blockIdx.x %d, threadIdx.x %d add 1, now is %d, kNumGatePart %d\n", blockIdx.x, threadIdx.x, arr_sync[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x], kNumGatePart);
             while(arr_sync[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x] != kNumGatePart){
                 // Spin here
+                printf("blockIdx.x %d threadIdx.x %d spin, value %d\n",blockIdx.x, threadIdx.x, arr_sync[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x]);
             }
         }
+        
         
         // grid.sync();
         
         // Each block compute a cell thus we need num_layer blocks
-        //(step>=num_timestep && blockIdx.x==gridDim.x-(num_layer + num_timestep - step) * kNumInputGate))
-        if(cond_input && (blockIdx.x % (kNumInputGate * kNumGatePart)==0 || false)){// TODO(xiachunwei) Processing last part for wavefront
+        if(cond_input && (blockIdx.x % (kNumInputGate * kNumGatePart)==0)){
             // Let one block compute input_gate+state_gate+bias of the cell to reduce sync
             #pragma unroll
             for(int i=0; i<kNumInputGate; ++i){
@@ -365,7 +373,314 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
             // }
         }
         output_buffer[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x] = 0;
-        arr_sync[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x] = 0;
+        arr_sync[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x]=0;
+        __threadfence();
+        grid.sync();
+    }
+}
+
+
+// Optimize for hidden size 256, gridDim(256, 1, 1), blockDim(256, 1, 1)
+// Using shared memory to store part of the weights
+// We set kPartHidden=4, each block somputes [64*256], 
+// in which 32*256 elements are in shared memory and 32*256 elements are in global memory
+template<int batch, int num_layer, int num_hidden, int num_timestep>
+    __global__ void lstm_reuse_shared_memory_v4(float* inputs_timestep, float* outputs_timestep, 
+    float* c_wavefront, float* h_wavefront, float* input_wavefront,
+    float* weight_input_wavefront, float* weight_state_wavefront, float* bias,
+    float* output_buffer){
+    
+    const int kNumInputGate = 4;
+    const int kNumGatesInLstmCell = 8;
+    const int kNumGatePart = gridDim.x / (num_layer*kNumGatesInLstmCell);
+    const int kPartHidden = num_hidden / kNumGatePart;
+    const int kShared = 48; // Note, only for hidden size 256
+    const int kGlobal = num_hidden/kNumGatePart - kShared; // Note, only for hidden size 256
+
+    assert(gridDim.x % (num_layer*kNumGatePart)==0);
+    assert(num_hidden % kNumGatePart == 0);
+    assert(num_hidden * kShared * sizeof(float) <= 48 * 1024);
+    if(blockIdx.x >= num_layer*kNumGatesInLstmCell*kNumGatePart){
+        return;
+    }
+    
+    extern float __shared__ shared_weight[];
+    float thread_output[2];
+    float * weight_ptr = NULL;
+    float* is_ptr = NULL;
+
+    // Feed inputs_timestep[0] to input_wavefront
+    if(blockIdx.x < kNumGatePart){
+        // for(int b=0; b<1; ++b){
+            input_wavefront[blockIdx.x * kPartHidden + threadIdx.x]=inputs_timestep[0 * num_hidden + blockIdx.x * kPartHidden + threadIdx.x];
+        // }
+    }
+    // Load weight to shared memory
+    // Weight layout: [hidden_to_reduce(128), hidden_to_out(64)]
+    if(blockIdx.x < gridDim.x / 2){
+        weight_ptr=weight_input_wavefront;
+        is_ptr = input_wavefront;
+        #pragma unroll
+        for(int i=0; i<kShared; ++i){
+            #pragma unroll
+            for(int b=0; b<1; ++b){
+                shared_weight[i*num_hidden + b*blockDim.x + threadIdx.x] = weight_ptr[blockIdx.x / kNumGatePart * num_hidden * num_hidden + (blockIdx.x % kNumGatePart) * kPartHidden * num_hidden + i*num_hidden + b*blockDim.x + threadIdx.x];
+            }
+        }
+    }else{
+        weight_ptr = weight_state_wavefront;
+        is_ptr = h_wavefront;
+        #pragma unroll
+        for(int i=0; i<kShared; ++i){
+            #pragma unroll
+            for(int b=0; b<1; ++b){
+                shared_weight[i*num_hidden + b*blockDim.x + threadIdx.x] = weight_ptr[(blockIdx.x - gridDim.x / 2) / kNumGatePart * num_hidden * num_hidden + ((blockIdx.x - gridDim.x / 2) %  kNumGatePart) * kPartHidden * num_hidden + i*num_hidden + b*blockDim.x + threadIdx.x];
+            }
+        }
+    }
+    for(int b=0; b<1; ++b){
+        output_buffer[(blockIdx.x / kNumGatePart) * num_hidden + b*blockDim.x + threadIdx.x] = 0;
+    }
+    __syncthreads();
+    cooperative_groups::grid_group grid = cooperative_groups::this_grid();
+    for(int step=0; step<num_timestep+num_layer-1; ++step){
+        for(int b=0; b<1; ++b){
+            thread_output[b] = 0;
+        }
+        // Blocks of first half gridDim.x compute the input gate
+        bool cond_input = ((step<num_timestep && blockIdx.x < min(step+1, (int)num_layer) * kNumInputGate * kNumGatePart) 
+            || (step>=num_timestep && blockIdx.x >= (step+1-num_timestep) * kNumInputGate * kNumGatePart)) && (blockIdx.x < gridDim.x / 2);
+        // Blocks of second half gridDim.x compute the input gate
+        bool cond_state = (((blockIdx.x >= gridDim.x / 2) && (blockIdx.x < gridDim.x / 2 + min(step+1, (int)num_layer) * kNumInputGate * kNumGatePart))
+            || (step>=num_timestep && (blockIdx.x >= (gridDim.x / 2 + (step+1-num_timestep) * kNumInputGate * kNumGatePart)))) && (blockIdx.x >= gridDim.x / 2);
+        
+        // GEMV
+        if(cond_input){
+            // Reduce shared memory part
+            #pragma unroll
+            for(int i=0; i<kShared; ++i){
+                #pragma unroll
+                for(int b=0; b<1; ++b){
+                    thread_output[b] += input_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) * num_hidden + (blockIdx.x % (kNumInputGate * kNumGatePart)) * kPartHidden + i] * shared_weight[i*num_hidden + b*blockDim.x + threadIdx.x];
+                }
+            }
+            // Reduce global memory part
+            #pragma unroll
+            for(int i=0; i<kGlobal; ++i){
+                #pragma unroll
+                for(int b=0; b<1; ++b){
+                    thread_output[b] += input_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) * num_hidden + (blockIdx.x % (kNumInputGate * kNumGatePart)) * kPartHidden + kShared + i] * 
+                        weight_input_wavefront[blockIdx.x / kNumGatePart * num_hidden * num_hidden + ((blockIdx.x % kNumGatePart) * kPartHidden + kShared + i) * num_hidden + b*blockDim.x + threadIdx.x];
+                }
+            }
+        }else if(cond_state){
+            // Reduce shared memory part
+            #pragma unroll
+            for(int i=0; i<kShared; ++i){
+                #pragma unroll
+                for(int b=0; b<1; ++b){
+                    thread_output[b] += h_wavefront[((blockIdx.x - gridDim.x / 2) / (kNumInputGate * kNumGatePart)) * num_hidden + ((blockIdx.x - gridDim.x / 2) % (kNumInputGate * kNumGatePart)) * kPartHidden + i] * shared_weight[i*num_hidden + b*blockDim.x + threadIdx.x];
+                }
+            }
+            #pragma unroll
+            for(int i=0; i<kGlobal; ++i){
+                #pragma unroll
+                for(int b=0; b<1; ++b){
+                    thread_output[b] += h_wavefront[((blockIdx.x - gridDim.x / 2) / (kNumInputGate * kNumGatePart)) * num_hidden + ((blockIdx.x - gridDim.x / 2) % (kNumInputGate * kNumGatePart)) * kPartHidden + kShared + i] * 
+                        weight_state_wavefront[(blockIdx.x - gridDim.x / 2) / kNumGatePart * num_hidden * num_hidden + (((blockIdx.x - gridDim.x / 2) % kNumGatePart) * kPartHidden + kShared + i) * num_hidden + b*blockDim.x + threadIdx.x];
+                }
+            }
+        }
+        
+        atomicAdd(output_buffer + ((blockIdx.x / kNumGatePart) * num_hidden + (blockIdx.x % kNumGatePart) * kPartHidden + 0*blockDim.x + threadIdx.x), thread_output[0]);
+        
+        __threadfence();
+        grid.sync();
+        
+        // Each block compute a cell thus we need num_layer blocks
+        if(cond_input && (blockIdx.x % (kNumInputGate * kNumGatePart)==0)){
+            // Let one block compute input_gate+state_gate+bias of the cell to reduce sync
+            #pragma unroll
+            for(int i=0; i<kNumInputGate; ++i){
+                output_buffer[(blockIdx.x / kNumGatePart + i) * num_hidden + threadIdx.x] += \
+                    output_buffer[((blockIdx.x + gridDim.x / 2) / kNumGatePart + i) * num_hidden + threadIdx.x] + bias[(blockIdx.x / (kNumInputGate * kNumGatePart)) + threadIdx.x];
+            }
+
+            float* i = output_buffer + (blockIdx.x / (kNumInputGate * kNumGatePart) + 0) * num_hidden;
+            float* j = output_buffer + (blockIdx.x / (kNumInputGate * kNumGatePart) + 1) * num_hidden;
+            float* f = output_buffer + (blockIdx.x / (kNumInputGate * kNumGatePart) + 2) * num_hidden;
+            float* o = output_buffer + (blockIdx.x / (kNumInputGate * kNumGatePart) + 3) * num_hidden;
+            c_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x] = 
+                c_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x] * sigmoid(f[threadIdx.x] + 1.0) +
+                sigmoid(i[threadIdx.x]) * tan(j[threadIdx.x]);
+            
+            h_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x] = 
+                tan(c_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x]) * sigmoid(o[threadIdx.x]);
+            
+            if(blockIdx.x / (kNumInputGate * kNumGatePart) < num_layer - 1){// Shift h to next layer
+                input_wavefront[(blockIdx.x / (kNumInputGate * kNumGatePart) + 1) * num_hidden + threadIdx.x] = h_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x];
+            }else if((step < num_timestep) && (blockIdx.x==0)){// Feed inputs[step] to input_wavefront
+                input_wavefront[0*num_hidden + threadIdx.x] = inputs_timestep[step*num_hidden + threadIdx.x];
+            }else if((step >= num_layer-1) && blockIdx.x / (kNumInputGate * kNumGatePart) == num_layer - 1){// Feed last layer's h to output
+                outputs_timestep[(step+1-num_layer)*num_hidden + threadIdx.x]=h_wavefront[(blockIdx.x / (kNumInputGate * kNumGatePart)) * num_hidden + threadIdx.x];
+            }
+            // if(step>= num_timestep && threadIdx.x==0){
+            //     printf("step: %d\n", step);
+            //     printf("blockIdx.x %d\n", blockIdx.x);
+            // }
+        }
+        output_buffer[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x] = 0;
+        __threadfence();
+        grid.sync();
+    }
+}
+
+
+template<int batch, int num_layer, int num_hidden, int num_timestep>
+    __global__ void lstm_reuse_shared_memory_v5(float* inputs_timestep, float* outputs_timestep, 
+    float* c_wavefront, float* h_wavefront, float* input_wavefront,
+    float* weight_input_wavefront, float* weight_state_wavefront, float* bias,
+    float* output_buffer){
+    
+    const int kNumInputGate = 4;
+    const int kNumGatesInLstmCell = 8;
+    const int kNumGatePart = gridDim.x / (num_layer*kNumGatesInLstmCell);
+    const int kPartHidden = num_hidden / kNumGatePart;
+    const int kShared = 48; // Note, only for hidden size 256
+    const int kGlobal = num_hidden/kNumGatePart - kShared; // Note, only for hidden size 256
+
+    assert(gridDim.x % (num_layer*kNumGatePart)==0);
+    assert(num_hidden % kNumGatePart == 0);
+    assert(num_hidden * kShared * sizeof(float) <= 48 * 1024);
+    if(blockIdx.x >= num_layer*kNumGatesInLstmCell*kNumGatePart){
+        return;
+    }
+    
+    extern float __shared__ shared_weight[];
+    float thread_output[1];
+    float * weight_ptr = NULL;
+    float* is_ptr = NULL;
+
+    // Feed inputs_timestep[0] to input_wavefront
+    if(blockIdx.x < kNumGatePart){
+        input_wavefront[blockIdx.x * kPartHidden + threadIdx.x]=inputs_timestep[0 * num_hidden + blockIdx.x * kPartHidden + threadIdx.x];
+    }
+    // Load weight to shared memory
+    // Weight layout: [hidden_to_reduce(128), hidden_to_out(64)]
+    if(blockIdx.x < gridDim.x / 2){
+        weight_ptr=weight_input_wavefront;
+        is_ptr = input_wavefront;
+        #pragma unroll
+        for(int i=0; i<kShared; ++i){
+            // #pragma unroll
+            // for(int b=0; b<1; ++b){
+                shared_weight[i*num_hidden + threadIdx.x] = weight_ptr[blockIdx.x / kNumGatePart * num_hidden * num_hidden + (blockIdx.x % kNumGatePart) * kPartHidden * num_hidden + i*num_hidden + threadIdx.x];
+            // }
+        }
+    }else{
+        weight_ptr = weight_state_wavefront;
+        is_ptr = h_wavefront;
+        #pragma unroll
+        for(int i=0; i<kShared; ++i){
+            // #pragma unroll
+            // for(int b=0; b<1; ++b){
+                shared_weight[i*num_hidden + threadIdx.x] = weight_ptr[(blockIdx.x - gridDim.x / 2) / kNumGatePart * num_hidden * num_hidden + ((blockIdx.x - gridDim.x / 2) %  kNumGatePart) * kPartHidden * num_hidden + i*num_hidden + threadIdx.x];
+            // }
+        }
+    }
+    for(int b=0; b<1; ++b){
+        output_buffer[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x] = 0;
+    }
+    __syncthreads();
+    cooperative_groups::grid_group grid = cooperative_groups::this_grid();
+    for(int step=0; step<num_timestep+num_layer-1; ++step){
+        // for(int b=0; b<1; ++b){
+            thread_output[0] = 0;
+        // }
+        // Blocks of first half gridDim.x compute the input gate
+        bool cond_input = ((step<num_timestep && blockIdx.x < min(step+1, (int)num_layer) * kNumInputGate * kNumGatePart) 
+            || (step>=num_timestep && blockIdx.x >= (step+1-num_timestep) * kNumInputGate * kNumGatePart)) && (blockIdx.x < gridDim.x / 2);
+        // Blocks of second half gridDim.x compute the input gate
+        bool cond_state = (((blockIdx.x >= gridDim.x / 2) && (blockIdx.x < gridDim.x / 2 + min(step+1, (int)num_layer) * kNumInputGate * kNumGatePart))
+            || (step>=num_timestep && (blockIdx.x >= (gridDim.x / 2 + (step+1-num_timestep) * kNumInputGate * kNumGatePart)))) && (blockIdx.x >= gridDim.x / 2);
+        
+        // GEMV
+        if(cond_input){
+            // Reduce shared memory part
+            #pragma unroll
+            for(int i=0; i<kShared; ++i){
+                // #pragma unroll
+                // for(int b=0; b<1; ++b){
+                    thread_output[0] += input_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) * num_hidden + (blockIdx.x % (kNumInputGate * kNumGatePart)) * kPartHidden + i] * shared_weight[i*num_hidden + threadIdx.x];
+                // }
+            }
+            // Reduce global memory part
+            #pragma unroll
+            for(int i=0; i<kGlobal; ++i){
+                // #pragma unroll
+                // for(int b=0; b<1; ++b){
+                    thread_output[0] += input_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) * num_hidden + (blockIdx.x % (kNumInputGate * kNumGatePart)) * kPartHidden + kShared + i] * 
+                        weight_input_wavefront[blockIdx.x / kNumGatePart * num_hidden * num_hidden + ((blockIdx.x % kNumGatePart) * kPartHidden + kShared + i) * num_hidden + threadIdx.x];
+                // }
+            }
+        }else if(cond_state){
+            // Reduce shared memory part
+            #pragma unroll
+            for(int i=0; i<kShared; ++i){
+                // #pragma unroll
+                // for(int 0=0; b<1; ++b){
+                    thread_output[0] += h_wavefront[((blockIdx.x - gridDim.x / 2) / (kNumInputGate * kNumGatePart)) * num_hidden + ((blockIdx.x - gridDim.x / 2) % (kNumInputGate * kNumGatePart)) * kPartHidden + i] * shared_weight[i*num_hidden + threadIdx.x];
+                // }
+            }
+            #pragma unroll
+            for(int i=0; i<kGlobal; ++i){
+                // #pragma unroll
+                // for(int b=0; b<1; ++0){
+                    thread_output[0] += h_wavefront[((blockIdx.x - gridDim.x / 2) / (kNumInputGate * kNumGatePart)) * num_hidden + ((blockIdx.x - gridDim.x / 2) % (kNumInputGate * kNumGatePart)) * kPartHidden + kShared + i] * 
+                        weight_state_wavefront[(blockIdx.x - gridDim.x / 2) / kNumGatePart * num_hidden * num_hidden + (((blockIdx.x - gridDim.x / 2) % kNumGatePart) * kPartHidden + kShared + i) * num_hidden + threadIdx.x];
+                // }
+            }
+        }
+        // #pragma unroll
+        // for(int b=0; b<1; ++b){
+            atomicAdd(output_buffer + ((blockIdx.x / kNumGatePart) * num_hidden + (blockIdx.x % kNumGatePart) * kPartHidden + threadIdx.x), thread_output[0]);
+        // }
+        __threadfence();
+        grid.sync();
+        continue;
+        // Each block compute a cell thus we need num_layer blocks
+        if(cond_input && (blockIdx.x % (kNumInputGate * kNumGatePart)==0)){
+            // Let one block compute input_gate+state_gate+bias of the cell to reduce sync
+            #pragma unroll
+            for(int i=0; i<kNumInputGate; ++i){
+                output_buffer[(blockIdx.x / kNumGatePart + i) * num_hidden + threadIdx.x] += \
+                    output_buffer[((blockIdx.x + gridDim.x / 2) / kNumGatePart + i) * num_hidden + threadIdx.x] + bias[(blockIdx.x / (kNumInputGate * kNumGatePart)) + threadIdx.x];
+            }
+
+            float* i = output_buffer + (blockIdx.x / (kNumInputGate * kNumGatePart) + 0) * num_hidden;
+            float* j = output_buffer + (blockIdx.x / (kNumInputGate * kNumGatePart) + 1) * num_hidden;
+            float* f = output_buffer + (blockIdx.x / (kNumInputGate * kNumGatePart) + 2) * num_hidden;
+            float* o = output_buffer + (blockIdx.x / (kNumInputGate * kNumGatePart) + 3) * num_hidden;
+            c_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x] = 
+                c_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x] * sigmoid(f[threadIdx.x] + 1.0) +
+                sigmoid(i[threadIdx.x]) * tan(j[threadIdx.x]);
+            
+            h_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x] = 
+                tan(c_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x]) * sigmoid(o[threadIdx.x]);
+            
+            if(blockIdx.x / (kNumInputGate * kNumGatePart) < num_layer - 1){// Shift h to next layer
+                input_wavefront[(blockIdx.x / (kNumInputGate * kNumGatePart) + 1) * num_hidden + threadIdx.x] = h_wavefront[blockIdx.x / (kNumInputGate * kNumGatePart) + threadIdx.x];
+            }else if((step < num_timestep) && (blockIdx.x==0)){// Feed inputs[step] to input_wavefront
+                input_wavefront[0*num_hidden + threadIdx.x] = inputs_timestep[step*num_hidden + threadIdx.x];
+            }else if((step >= num_layer-1) && blockIdx.x / (kNumInputGate * kNumGatePart) == num_layer - 1){// Feed last layer's h to output
+                outputs_timestep[(step+1-num_layer)*num_hidden + threadIdx.x]=h_wavefront[(blockIdx.x / (kNumInputGate * kNumGatePart)) * num_hidden + threadIdx.x];
+            }
+            // if(step>= num_timestep && threadIdx.x==0){
+            //     printf("step: %d\n", step);
+            //     printf("blockIdx.x %d\n", blockIdx.x);
+            // }
+        }
+        // output_buffer[(blockIdx.x / kNumGatePart) * num_hidden + threadIdx.x] = 0;
         __threadfence();
         grid.sync();
     }
