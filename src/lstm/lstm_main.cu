@@ -16,9 +16,11 @@
 
 
 // kNumGatePart=4
-#define LSTM_DEV_FUNC  { \
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v5<1, 10, 256, 100>, dim3(320, 1, 1), dim3(256, 1, 1), encoder_kernelArgs, 48*1024);};
+// #define LSTM_DEV_FUNC  { \
+//     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v6<1, 10, 256, 100>, dim3(320, 1, 1), dim3(256, 1, 1), encoder_kernelArgs, 48*1024);};
 
+#define LSTM_DEV_FUNC  { \
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v8<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 32*1024);};
 
 #define CUDA_CHECK_RESULT if (result != cudaSuccess) \
     { \
@@ -51,7 +53,7 @@ void benchmark_lstm(int argc, char** argv){
     // cudaMalloc((void**)&d_arr_sync, 8*num_layer*num_layer*sizeof(int));
     // cudaMemset(d_arr_sync, 0, 8*num_layer*num_layer*sizeof(int));
     // Set shared memory for SM
-    // int maxbytes = 1024*132;
+    // int maxbytes = 1024*164;
     // cudaFuncSetAttribute(lstm_reuse_shared_memory_v4<1, 10, 256, 100>, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
     // int carveout = 50; // prefer shared memory capacity 50% of maximum
     // Named Carveout Values:
@@ -59,7 +61,7 @@ void benchmark_lstm(int argc, char** argv){
     // carveout = cudaSharedmemCarveoutMaxL1;     //   (0)
     // auto carveout = cudaSharedmemCarveoutMaxShared; // (100)
     // cudaFuncSetAttribute(lstm_wavefront_magic, cudaFuncAttributePreferredSharedMemoryCarveout, carveout);
-    int numThreads = 256, numBlocksPerSm=0; \
+    int numThreads = 64*4, numBlocksPerSm=0; \
     cudaDeviceProp deviceProp; \
     cudaGetDeviceProperties(&deviceProp, dev); \
     cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, lstm_reuse_shared_memory_v4<1, 10, 256, 100>, numThreads, 0); \

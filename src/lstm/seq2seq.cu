@@ -74,8 +74,8 @@ void benchmark_seq2seq(int argc, char** argv){
     auto encoder_data = create_lstm_data(batch, encoder_num_layer, encoder_num_hidden, encoder_num_timestep);
     auto decoder_data = create_lstm_data(batch, decoder_num_layer, decoder_num_hidden, decoder_num_timestep);
     int* d_arr_sync=nullptr;
-    cudaMalloc((void**)&d_arr_sync, 8*encoder_num_layer*encoder_num_hidden*sizeof(int));
-    cudaMemset(d_arr_sync, 0, 8*encoder_num_layer*encoder_num_hidden*sizeof(int));
+    cudaMalloc((void**)&d_arr_sync, 32*encoder_num_layer*encoder_num_hidden*sizeof(int));
+    cudaMemset(d_arr_sync, 0, 32*encoder_num_layer*encoder_num_hidden*sizeof(int));
     // Set shared memory for SM
     // int maxbytes = 1024*64;
     // cudaFuncSetAttribute(lstm_reuse_shared_memory<1, 8, 128, 100>, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
@@ -104,6 +104,7 @@ void benchmark_seq2seq(int argc, char** argv){
         }; 
     
     SEQ2SEQ_ENCODER
+    cudaMemset(d_arr_sync, 0, 32*encoder_num_layer*encoder_num_hidden*sizeof(int));
     SEQ2SEQ_DECODER
     cudaDeviceSynchronize();
     
