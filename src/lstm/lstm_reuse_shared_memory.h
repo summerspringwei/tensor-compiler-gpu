@@ -908,17 +908,16 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
     float* output_buffer){
     
     const int kNumInputGate = 4;
-    const int kNumGatesInLstmCell = 8;
-    const int kNumRow = 8;
-    const int kNumThreadIter = num_hidden / 32;
-    const int kNumBlockPerCell = num_hidden / kNumRow;// 256/4 = 64
+    const int kNumRow = 8; //Equal to blockDim.y
+    const int kNumThreadIter = num_hidden / 32; // 32 equal to blockDim.x
+    const int kNumBlockPerCell = num_hidden / kNumRow; // 256/8 = 32
 
-    extern float __shared__ shared_input_weight[];//4*4*256
+    extern float __shared__ shared_input_weight[]; //4*8*256*4B=32KB
 
     float input_local_sum[kNumInputGate];
     float state_local_sum[kNumInputGate];
     
-    // Load weight to shared memory
+    // Load input weight to shared memory
     #pragma unroll
     for(int i=0; i<kNumInputGate; ++i){
         #pragma unroll
@@ -930,8 +929,9 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
 
     __syncthreads();
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
-    for(int step=0; step<num_timestep; ++step){
-        bool block_cond = (blockIdx.x < min(step+1, num_layer)*kNumBlockPerCell);
+    for(int step=0; step<num_timestep+num_layer-1; ++step){
+        bool block_cond = ((step<num_timestep) && (blockIdx.x < min(step+1, num_layer)*kNumBlockPerCell)) || 
+            ((step>=num_timestep) && (blockIdx.x >= (step+1-num_timestep)*kNumBlockPerCell));
         if(block_cond){
             #pragma unroll
             for(int i=0; i<kNumInputGate; ++i){
@@ -952,24 +952,36 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
                 }
                 // input gate + state gate
                 if(threadIdx.x == 0){
-                    output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + i * num_hidden + (blockIdx.x % kNumGatesInLstmCell) * kNumRow + threadIdx.y] = input_local_sum[i]+state_local_sum[i];
-                    // printf("step: %d blockIdx.x %d threadIdx.y %d output_buffer %f\n", step, blockIdx.x, threadIdx.y, input_local_sum[i]+state_local_sum[i]);
+                    output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + i * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = \
+                        input_local_sum[i]+state_local_sum[i]+bias[(blockIdx.x / kNumBlockPerCell)*num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                    // printf("step: %d blockIdx.x %d threadIdx.y %d output_buffer %f\n", step, blockIdx.x, threadIdx.y, output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + i * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y]);
                 }
             }
             __threadfence_block();
             // Solve here
             if(threadIdx.x == 0){
-                float i = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 0 * num_hidden + (blockIdx.x % kNumGatesInLstmCell) * kNumRow + threadIdx.y];
-                float j = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 1 * num_hidden + (blockIdx.x % kNumGatesInLstmCell) * kNumRow + threadIdx.y];
-                float f = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 2 * num_hidden + (blockIdx.x % kNumGatesInLstmCell) * kNumRow + threadIdx.y];
-                float o = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 3 * num_hidden + (blockIdx.x % kNumGatesInLstmCell) * kNumRow + threadIdx.y];
+                float i = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 0 * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                float j = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 1 * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                float f = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 2 * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                float o = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 3 * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
 
                 c_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = 
                     c_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] * sigmoid(f + 1.0) +
                     sigmoid(i) * tan(j);
                 h_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = 
                     tan(c_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + blockIdx.x % kNumBlockPerCell * kNumRow + threadIdx.y]) * sigmoid(o);
+                // Shift result for next timestep
+                if(blockIdx.x / kNumBlockPerCell < num_layer - 1){
+                    input_wavefront[(blockIdx.x / kNumBlockPerCell + 1) * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = h_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                }
+                if(step<num_timestep && blockIdx.x<kNumBlockPerCell){
+                    input_wavefront[blockIdx.x * kNumRow + threadIdx.y] = inputs_timestep[step*num_hidden + blockIdx.x * kNumRow + threadIdx.y];
+                }
+                if((step >= num_layer-1) && blockIdx.x / kNumBlockPerCell == (num_layer-1)){
+                   outputs_timestep[(step+1-num_layer)*num_hidden + blockIdx.x * kNumRow + threadIdx.y] = h_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                }
             }
+            __syncthreads();
         }
         __threadfence();
         grid.sync();
