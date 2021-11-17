@@ -19,8 +19,11 @@
 // #define LSTM_DEV_FUNC  { \
 //     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v6<1, 10, 256, 100>, dim3(320, 1, 1), dim3(256, 1, 1), encoder_kernelArgs, 48*1024);};
 
+// #define LSTM_DEV_FUNC  { \
+//     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v8<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 32*1024);};
+
 #define LSTM_DEV_FUNC  { \
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v8<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 32*1024);};
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 48*1024);};
 
 #define CUDA_CHECK_RESULT if (result != cudaSuccess) \
     { \
@@ -53,8 +56,8 @@ void benchmark_lstm(int argc, char** argv){
     // cudaMalloc((void**)&d_arr_sync, 8*num_layer*num_layer*sizeof(int));
     // cudaMemset(d_arr_sync, 0, 8*num_layer*num_layer*sizeof(int));
     // Set shared memory for SM
-    // int maxbytes = 1024*164;
-    // cudaFuncSetAttribute(lstm_reuse_shared_memory_v4<1, 10, 256, 100>, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
+    // int maxbytes = 1024*64;
+    // cudaFuncSetAttribute((void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
     // int carveout = 50; // prefer shared memory capacity 50% of maximum
     // Named Carveout Values:
     // carveout = cudaSharedmemCarveoutDefault;   //  (-1)
@@ -64,7 +67,7 @@ void benchmark_lstm(int argc, char** argv){
     int numThreads = 64*4, numBlocksPerSm=0; \
     cudaDeviceProp deviceProp; \
     cudaGetDeviceProperties(&deviceProp, dev); \
-    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, lstm_reuse_shared_memory_v4<1, 10, 256, 100>, numThreads, 0); \
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, (void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, numThreads, 0); \
     printf("OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);\
     void *encoder_kernelArgs[] = { (void *)&(lstm_data.d_inputs_timestep), (void *)&(lstm_data.d_outputs_timestep), \
         (void *)&(lstm_data.d_c_wavefront), (void *)&(lstm_data.d_h_wavefront), (void *)&(lstm_data.d_input_wavefront), \
@@ -77,16 +80,26 @@ void benchmark_lstm(int argc, char** argv){
     
     std::vector<float> lstm_output_timestep(batch * num_hidden * num_timestep);
     checkCuda(cudaMemcpy(lstm_output_timestep.data(), lstm_data.d_outputs_timestep, sizeof(float) * lstm_output_timestep.size() , cudaMemcpyDeviceToHost));
+    std::vector<float> c_state_timestep(batch * num_layer * num_hidden);
+    std::vector<float> h_state_timestep(batch * num_layer * num_hidden);
+    checkCuda(cudaMemcpy(c_state_timestep.data(), lstm_data.d_c_wavefront, sizeof(float) * c_state_timestep.size() , cudaMemcpyDeviceToHost));
+    checkCuda(cudaMemcpy(h_state_timestep.data(), lstm_data.d_h_wavefront, sizeof(float) * h_state_timestep.size() , cudaMemcpyDeviceToHost));
     // printf("%ld\n", encoder_output_timestep.size());
-    // printf("Outputs\n");
-    // for(int i=0;i<num_layer; ++i){
-    //     for(int j=0;j<num_layer;++j){
-    //         printf("%f ", encoder_output_timestep[i*num_layer + j]);
-    //     }printf("\n");
-    // }
+    printf("c_state\n");
+    for(int i=0;i<num_layer; ++i){
+        for(int j=0;j<num_hidden;++j){
+            printf("%f ", c_state_timestep[i*num_hidden + j]);
+        }printf("\n");
+    }
+    printf("h_state\n");
+    for(int i=0;i<num_layer; ++i){
+        for(int j=0;j<num_hidden;++j){
+            printf("%f ", h_state_timestep[i*num_hidden + j]);
+        }printf("\n");
+    }
     auto result = cudaGetLastError();
     CUDA_CHECK_RESULT
-    // return;
+    return;
     // Warm up
     for (int i=0; i<steps; i++) {
         LSTM_DEV_FUNC

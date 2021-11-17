@@ -291,7 +291,7 @@ ALL_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 
 # Common includes and paths for CUDA
-INCLUDES  := 
+INCLUDES  := -I../../third_party/libnpy/include
 LIBRARIES :=
 
 ################################################################################

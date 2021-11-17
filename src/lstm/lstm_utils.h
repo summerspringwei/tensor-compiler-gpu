@@ -2,9 +2,12 @@
 #define LSTM_UTILS_H
 
 #include <vector>
+#include <memory>
 
 #include <cuda_runtime.h>
 #include <cuda_profiler_api.h>
+
+#include "npy.hpp"
 
 class CuLstmData
 {
@@ -37,8 +40,9 @@ class CuLstmData
 };
 
 
-CuLstmData create_lstm_data(int batch, int num_layer, int num_hidden, int num_timestep){
+CuLstmData create_lstm_data(int batch, int num_layer, unsigned long num_hidden, int num_timestep){
    // Allocate host data
+    const int kNumInputGate = 4;
     std::vector<float> input_timestep(batch*num_timestep * num_hidden);
     std::vector<float> output_timestep(batch*num_timestep * num_hidden);
     std::vector<float> input_wavefront(batch*num_layer*num_hidden);
@@ -47,24 +51,66 @@ CuLstmData create_lstm_data(int batch, int num_layer, int num_hidden, int num_ti
     std::vector<float> weight_input_wavefront(4*num_layer*num_hidden*num_hidden);
     std::vector<float> weight_state_wavefront(4*num_layer*num_hidden*num_hidden);
     std::vector<float> output_buffer(8*num_layer*num_hidden);
-    std::vector<float> bias(num_hidden);
+    std::vector<float> bias_wavefront(num_layer*num_hidden);
     // Set host data
-    for(int i=0; i<input_timestep.size(); ++i){
-        input_timestep[i] = 1.0;
+    // for(int i=0; i<input_timestep.size(); ++i){
+    //     input_timestep[i] = 1.0;
+    // }
+    // for(int i=0;i<weight_input_wavefront.size(); ++i){
+    //     weight_input_wavefront[i] = 1.0;
+    //     weight_state_wavefront[i] = 1.0;
+    // }
+    // for(int i=0; i<c_wavefront.size(); ++i){
+    //     c_wavefront[i]=1.0;
+    //     h_wavefront[i]=1.0;
+    //     input_wavefront[i]=1.0;
+    // }
+    // for(int i=0; i<bias.size(); ++i){
+    //     bias[i]=1.0;
+    // }
+    
+    // Prepare data
+    using sp_vector = std::shared_ptr<std::vector<float>>;
+    auto input = std::make_shared<std::vector<float>>(num_hidden);
+    auto c_state = std::make_shared<std::vector<float>>(num_hidden);
+    auto h_state = std::make_shared<std::vector<float>>(num_hidden);
+    auto bias = std::make_shared<std::vector<float>>(num_hidden);
+    auto W = std::make_shared<std::vector<sp_vector>>(kNumInputGate);
+    auto U = std::make_shared<std::vector<sp_vector>>(kNumInputGate);
+    for(int i=0; i<kNumInputGate; ++i){
+        W->at(i) = (std::make_shared<std::vector<float>>(num_hidden*num_hidden));
+        U->at(i) = (std::make_shared<std::vector<float>>(num_hidden*num_hidden));
     }
-    for(int i=0;i<weight_input_wavefront.size(); ++i){
-        weight_input_wavefront[i] = 1.0;
-        weight_state_wavefront[i] = 1.0;
+    bool fortran_order;
+    std::vector<unsigned long> input_shape = {num_hidden};
+    std::vector<unsigned long> weight_shape = {num_hidden * num_hidden};
+    // Load host data from npy file
+    npy::LoadArrayFromNumpy(std::string("data/input.npy"), input_shape, fortran_order, *(input.get()));
+    npy::LoadArrayFromNumpy(std::string("data/c_state.npy"), input_shape, fortran_order, *c_state.get());
+    npy::LoadArrayFromNumpy(std::string("data/h_state.npy"), input_shape, fortran_order, *h_state.get());
+    npy::LoadArrayFromNumpy(std::string("data/bias.npy"), input_shape, fortran_order, *bias.get());
+    for(int i=0; i<kNumInputGate; ++i){
+        char buf[128];
+        snprintf(buf, sizeof(buf), "data/W_%d.npy", i);
+        npy::LoadArrayFromNumpy<float>(std::string(buf), weight_shape, fortran_order, *(W->at(i).get()));
+        snprintf(buf, sizeof(buf), "data/U_%d.npy", i);
+        npy::LoadArrayFromNumpy<float>(std::string(buf), weight_shape, fortran_order, *(U->at(i).get()));
     }
-    for(int i=0; i<c_wavefront.size(); ++i){
-        c_wavefront[i]=1.0;
-        h_wavefront[i]=1.0;
-        input_wavefront[i]=1.0;
+    // Copy cell to layers and timesteps
+    memcpy(input_timestep.data(), input->data(), input_shape[0] * sizeof(float));
+    memcpy(input_wavefront.data(), input->data(), input_shape[0] * sizeof(float));
+    memcpy(c_wavefront.data(), c_state->data(), input_shape[0] * sizeof(float));
+    memcpy(h_wavefront.data(), h_state->data(), input_shape[0] * sizeof(float));
+    memcpy(bias_wavefront.data(), bias->data(), input_shape[0] * sizeof(float));
+    for(int i=0; i<kNumInputGate; ++i){
+        memcpy(weight_input_wavefront.data() + i * weight_shape[0], W->at(i)->data(), weight_shape[0] * sizeof(float));
+        memcpy(weight_state_wavefront.data() + i * weight_shape[0], U->at(i)->data(), weight_shape[0] * sizeof(float));
     }
+    
     // Allocate GPU
     float* d_inputs_timestep=nullptr, *d_outputs_timestep=nullptr;
     float* d_input_wavefront=nullptr, *d_c_wavefront=nullptr, *d_h_wavefront=nullptr;
-    float* d_weight_input_wavefront=nullptr, *d_weight_state_wavefront=nullptr, *d_output_buffer=nullptr, *d_bias=nullptr;
+    float* d_weight_input_wavefront=nullptr, *d_weight_state_wavefront=nullptr, *d_output_buffer=nullptr, *d_bias_wavefront=nullptr;
     
     cudaMalloc((void**)&d_inputs_timestep, sizeof(float) * input_timestep.size());
     cudaMalloc((void**)&d_outputs_timestep, sizeof(float) * output_timestep.size());
@@ -74,7 +120,7 @@ CuLstmData create_lstm_data(int batch, int num_layer, int num_hidden, int num_ti
     cudaMalloc((void**)&d_weight_input_wavefront, sizeof(float) * weight_input_wavefront.size());
     cudaMalloc((void**)&d_weight_state_wavefront, sizeof(float) * weight_state_wavefront.size());
     cudaMalloc((void**)&d_output_buffer, sizeof(float) * output_buffer.size());
-    cudaMalloc((void**)&d_bias, sizeof(float) * bias.size());
+    cudaMalloc((void**)&d_bias_wavefront, sizeof(float) * bias_wavefront.size());
 
     checkCuda(cudaMemcpy(d_inputs_timestep, input_timestep.data(), sizeof(float) * input_timestep.size(), cudaMemcpyHostToDevice));
     checkCuda(cudaMemcpy(d_input_wavefront, input_wavefront.data(), sizeof(float) * input_wavefront.size() , cudaMemcpyHostToDevice));
@@ -82,11 +128,11 @@ CuLstmData create_lstm_data(int batch, int num_layer, int num_hidden, int num_ti
     checkCuda(cudaMemcpy(d_h_wavefront, h_wavefront.data(), sizeof(float) * h_wavefront.size() , cudaMemcpyHostToDevice));
     checkCuda(cudaMemcpy(d_weight_input_wavefront, weight_input_wavefront.data(), sizeof(float) * weight_input_wavefront.size() , cudaMemcpyHostToDevice));
     checkCuda(cudaMemcpy(d_weight_state_wavefront, weight_state_wavefront.data(), sizeof(float) * weight_state_wavefront.size() , cudaMemcpyHostToDevice));
-    checkCuda(cudaMemcpy(d_bias, bias.data(), sizeof(float) * bias.size() , cudaMemcpyHostToDevice));
+    checkCuda(cudaMemcpy(d_bias_wavefront, bias_wavefront.data(), sizeof(float) * bias_wavefront.size() , cudaMemcpyHostToDevice));
 
     return CuLstmData(d_inputs_timestep, d_outputs_timestep, 
         d_input_wavefront, d_c_wavefront, d_h_wavefront, 
-        d_weight_input_wavefront, d_weight_state_wavefront, d_output_buffer, d_bias);
+        d_weight_input_wavefront, d_weight_state_wavefront, d_output_buffer, d_bias_wavefront);
 }
 
 
