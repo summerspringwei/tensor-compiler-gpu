@@ -97,14 +97,18 @@ CuLstmData create_lstm_data(int batch, int num_layer, unsigned long num_hidden, 
         npy::LoadArrayFromNumpy<float>(std::string(buf), weight_shape, fortran_order, *(U->at(i).get()));
     }
     // Copy cell to layers and timesteps
-    memcpy(input_timestep.data(), input->data(), input_shape[0] * sizeof(float));
     memcpy(input_wavefront.data(), input->data(), input_shape[0] * sizeof(float));
-    memcpy(c_wavefront.data(), c_state->data(), input_shape[0] * sizeof(float));
-    memcpy(h_wavefront.data(), h_state->data(), input_shape[0] * sizeof(float));
-    memcpy(bias_wavefront.data(), bias->data(), input_shape[0] * sizeof(float));
-    for(int i=0; i<kNumInputGate; ++i){
-        memcpy(weight_input_wavefront.data() + i * weight_shape[0], W->at(i)->data(), weight_shape[0] * sizeof(float));
-        memcpy(weight_state_wavefront.data() + i * weight_shape[0], U->at(i)->data(), weight_shape[0] * sizeof(float));
+    for(int i=0; i<num_timestep; ++i){
+        memcpy(input_timestep.data() + i * input_shape[0], input->data(), input_shape[0] * sizeof(float));
+    }
+    for(int i=0; i<num_layer; ++i){
+        memcpy(c_wavefront.data() + i * input_shape[0], c_state->data(), input_shape[0] * sizeof(float));
+        memcpy(h_wavefront.data() + i * input_shape[0], h_state->data(), input_shape[0] * sizeof(float));
+        memcpy(bias_wavefront.data() + i * input_shape[0], bias->data(), input_shape[0] * sizeof(float));
+        for(int j=0; j<kNumInputGate; ++j){
+            memcpy(weight_input_wavefront.data() + i * kNumInputGate * weight_shape[0] + j * weight_shape[0], W->at(j)->data(), weight_shape[0] * sizeof(float));
+            memcpy(weight_state_wavefront.data() + i * kNumInputGate * weight_shape[0] + j * weight_shape[0], U->at(j)->data(), weight_shape[0] * sizeof(float));
+        }
     }
     
     // Allocate GPU

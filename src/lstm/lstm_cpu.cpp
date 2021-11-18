@@ -167,7 +167,7 @@ lstm_cell(std::shared_ptr<std::vector<float>> inputs,
 
 void print_vector(std::shared_ptr<std::vector<float>> vec) {
   for (int i = 0; i < vec->size(); ++i) {
-    printf("%f ", vec->at(i));
+    printf("%.3f ", vec->at(i));
   }
   printf("\n");
 }
@@ -282,6 +282,7 @@ void test_lstm_timesteps(){
     }
     printf("Load data done!\n");
     std::vector<sp_vector> input_timesteps(num_timesteps);
+    std::vector<sp_vector> output_timesteps(num_timesteps);
     for(int i=0; i<num_timesteps; ++i){
         input_timesteps.at(i) = input;
     }
@@ -292,15 +293,21 @@ void test_lstm_timesteps(){
     // First layer
     for(int step=0; step<num_timesteps; ++step){
         lstm_layers_states[0] = lstm_cell<256>(input, lstm_layers_states[0].first, lstm_layers_states[0].second, W, U, bias);
-        for(int i=1; i<9;++i){
-            lstm_layers_states[i] = lstm_cell<256>(lstm_layers_states[0].second, lstm_layers_states[1].first, lstm_layers_states[1].second, W, U, bias);
+        for(int i=1; i<10;++i){
+            lstm_layers_states[i] = lstm_cell<256>(lstm_layers_states[i-1].second, lstm_layers_states[i].first, lstm_layers_states[i].second, W, U, bias);
         }
+        output_timesteps[step] = lstm_layers_states[num_layer-1].second;
     }
-    
+    // Print output
+    for(int i=0; i<num_timesteps; ++i){
+        printf("step: %d\n", i);
+        print_vector(output_timesteps[i]);
+    }
 }
 
 int main() {
 //   test_gemv();
-  test_lstm_cell();
+//   test_lstm_cell();
+  test_lstm_timesteps();
   return 0;
 }

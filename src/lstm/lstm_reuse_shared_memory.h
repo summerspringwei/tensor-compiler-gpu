@@ -1131,16 +1131,16 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
                     input_wavefront[blockIdx.x * kNumRow + threadIdx.y] = inputs_timestep[step*num_hidden + blockIdx.x * kNumRow + threadIdx.y];
                 }
                 if((step >= num_layer-1) && blockIdx.x / kNumBlockPerCell == (num_layer-1)){
-                   outputs_timestep[(step+1-num_layer)*num_hidden + blockIdx.x * kNumRow + threadIdx.y] = h_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                   outputs_timestep[(step+1-num_layer)*num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = h_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
                 }
             }
         }
 
         __threadfence();
         grid.sync();
-        if(step==9){
-            return;
-        }
+        // if(step==9){
+        //     return;
+        // }
     }
 }
 // lstm_reuse_shared_memory.h

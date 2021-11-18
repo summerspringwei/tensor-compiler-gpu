@@ -88,13 +88,20 @@ void benchmark_lstm(int argc, char** argv){
     printf("c_state\n");
     for(int i=0;i<num_layer; ++i){
         for(int j=0;j<num_hidden;++j){
-            printf("%f ", c_state_timestep[i*num_hidden + j]);
+            printf("%.3f ", c_state_timestep[i*num_hidden + j]);
         }printf("\n");
     }
     printf("h_state\n");
     for(int i=0;i<num_layer; ++i){
         for(int j=0;j<num_hidden;++j){
-            printf("%f ", h_state_timestep[i*num_hidden + j]);
+            printf("%.3f ", h_state_timestep[i*num_hidden + j]);
+        }printf("\n");
+    }
+    printf("lstm_output_timestep\n");
+    for(int i=0;i<num_timestep; ++i){
+        printf("step: %d\n", i);
+        for(int j=0;j<num_hidden;++j){
+            printf("%.3f ", lstm_output_timestep[i*num_hidden + j]);
         }printf("\n");
     }
     auto result = cudaGetLastError();
