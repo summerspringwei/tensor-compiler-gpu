@@ -8,7 +8,7 @@
 
 #include <cuda_runtime.h>
 
-#include "utils.h"
+#include "../utils.h"
 
 // Convenience function for checking CUDA runtime API results
 // can be wrapped around any runtime API call. No-op in release builds.

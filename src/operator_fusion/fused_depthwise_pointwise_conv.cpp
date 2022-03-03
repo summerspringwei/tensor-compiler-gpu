@@ -55,13 +55,13 @@ void fused_depthwise_pointwise_conv(float *input, float *dw_weight,
                   w - 1 + wj >= width) {
                 window[wi][wj] = 0;
                 dw_sum += (window[wi][wj] *
-                           dw_weight[in_channel * kernel_height * kernel_width +
+                           dw_weight[ic * kernel_height * kernel_width +
                                      wi * kernel_width + wj]);
               } else {
                 window[wi][wj] = input[ic * height * width +
                                        (h - 1 + wi) * width + (w - 1 + wj)];
                 dw_sum += (window[wi][wj] *
-                           dw_weight[in_channel * kernel_height * kernel_width +
+                           dw_weight[ic * kernel_height * kernel_width +
                                      wi * kernel_width + wj]);
               }
             }
@@ -74,27 +74,50 @@ void fused_depthwise_pointwise_conv(float *input, float *dw_weight,
   }
 }
 
-int main() {
-  float *input = new float[in_channel * height * width];
-  float *pw_weight = new float[out_channel * in_channel];
-  float *output = new float[in_channel * height * width];
 
-  // Init data
-  for (int oc = 0; oc < out_channel; ++oc) {
+
+void init_data(float* input, float* dw_weight, float* pw_weight, float* output){
+  for (int ic = 0; ic < out_channel; ++ic) {
     for (int h = 0; h < height; ++h) {
       for (int w = 0; w < width; ++w) {
-        input[oc * height * width + h * width + w] = 1;
-        output[oc * height * width + h * width + w] = 0;
+        input[ic * height * width + h * width + w] = 1;
       }
     }
   }
+
+  for (int ic = 0; ic < in_channel; ++ic) {
+    for (int h = 0; h < kernel_height; ++h) {
+      for (int w = 0; w < kernel_width; ++w) {
+        dw_weight[ic * kernel_height * kernel_width + h * kernel_width + w] = 1;
+      }
+    }
+  }
+
   for (int oc = 0; oc < out_channel; ++oc) {
     for (int ic = 0; ic < out_channel; ++ic) {
       pw_weight[oc * in_channel + ic] = 1;
     }
   }
 
-  fused_avgpool_pointwise_conv(input, pw_weight, output);
+  for (int oc = 0; oc < out_channel; ++oc) {
+    for (int h = 0; h < height; ++h) {
+      for (int w = 0; w < width; ++w) {
+        output[oc * height * width + h * width + w] = 0;
+      }
+    }
+  }  
+}
+
+
+int main() {
+  float *input = new float[in_channel * height * width];
+  float *dw_weight = new float[in_channel * kernel_height * kernel_width];
+  float *pw_weight = new float[out_channel * in_channel];
+  float *output = new float[in_channel * height * width];
+
+  init_data(input, dw_weight, pw_weight, output);
+  // fused_avgpool_pointwise_conv(input, pw_weight, output);
+  fused_depthwise_pointwise_conv(input,dw_weight, pw_weight, output);
 
   for (int oc = 0; oc < out_channel; ++oc) {
     for (int h = 0; h < height; ++h) {
@@ -105,8 +128,8 @@ int main() {
     }
   }
 
-  delete input;
-  delete pw_weight;
-  delete output;
+  delete[] input;
+  delete[] pw_weight;
+  delete[] output;
   return 0;
 }
