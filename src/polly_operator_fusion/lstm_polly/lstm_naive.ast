@@ -1,0 +1,40 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'lstm_cell_naive':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%56 => %63' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%43 => .preheader' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%32 => %42' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%23 => %31' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%21 => .preheader9' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%12 => %20' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%10 => .preheader10' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader11 => .preheader8' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader11 => %63' in function 'lstm_cell_naive':
+:: isl ast :: lstm_cell_naive :: %.preheader11---%63
+
+if (1 && (&MemRef8[256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef8[0]) && (&MemRef5[3][255][256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef5[0][0][0]) && (&MemRef2[3][255][256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef2[0][0][0]) && (&MemRef1[256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef1[0]) && (&MemRef6[256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef6[0]) && (&MemRef5[3][255][256] <= &MemRef8[0] || &MemRef8[256] <= &MemRef5[0][0][0]) && (&MemRef2[3][255][256] <= &MemRef8[0] || &MemRef8[256] <= &MemRef2[0][0][0]) && (&MemRef1[256] <= &MemRef8[0] || &MemRef8[256] <= &MemRef1[0]) && (&MemRef6[256] <= &MemRef8[0] || &MemRef8[256] <= &MemRef6[0]))
+
+    {
+      for (int c0 = 0; c0 <= 3; c0 += 1) {
+        for (int c1 = 0; c1 <= 255; c1 += 1) {
+          Stmt1(c0, c1);
+          for (int c2 = 0; c2 <= 255; c2 += 1)
+            Stmt2(c0, c1, c2);
+        }
+        for (int c1 = 0; c1 <= 255; c1 += 1) {
+          Stmt5(c0, c1);
+          for (int c2 = 0; c2 <= 255; c2 += 1)
+            Stmt6(c0, c1, c2);
+        }
+        for (int c1 = 0; c1 <= 255; c1 += 1)
+          Stmt9(c0, c1);
+      }
+      for (int c0 = 0; c0 <= 255; c0 += 1)
+        Stmt12(c0);
+      for (int c0 = 0; c0 <= 255; c0 += 1)
+        Stmt14(c0);
+    }
+
+else
+    {  /* original code */ }
+
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%6 => <Function Return>' in function 'lstm_cell_naive':

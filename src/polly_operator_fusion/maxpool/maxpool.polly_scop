@@ -1,0 +1,60 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'maxpool':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%3 => %15' in function 'maxpool':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%3 => %18' in function 'maxpool':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '.preheader => %20' in function 'maxpool':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '.preheader9 => %21' in function 'maxpool':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '.preheader10 => %22' in function 'maxpool':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '.preheader11 => %23' in function 'maxpool':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '.preheader12 => %24' in function 'maxpool':
+    Function: maxpool
+    Region: %.preheader12---%24
+    Max Loop Depth:  6
+    Invariant Accesses: {
+    }
+    Context:
+    {  :  }
+    Assumed Context:
+    {  :  }
+    Invalid Context:
+    {  : false }
+    Arrays {
+        float MemRef0[*][16][32][32]; // Element size 4
+        float MemRef__0__phi; // Element size 4
+        float MemRef2[*][16][32][32]; // Element size 4
+    }
+    Arrays (Bounds as pw_affs) {
+        float MemRef0[*][ { [] -> [(16)] } ][ { [] -> [(32)] } ][ { [] -> [(32)] } ]; // Element size 4
+        float MemRef__0__phi; // Element size 4
+        float MemRef2[*][ { [] -> [(16)] } ][ { [] -> [(32)] } ][ { [] -> [(32)] } ]; // Element size 4
+    }
+    Alias Groups (1):
+        [[ <{ MemRef0[(0), (0), (0), (0)] }, { MemRef0[(0), (15), (31), (32)] }> <{ MemRef2[(0), (0), (0), (0)] }, { MemRef2[(0), (15), (31), (32)] }> ]]
+    Statements {
+    	Stmt_%3__TO__%15
+            Domain :=
+                { Stmt_%3__TO__%15[0, i1, i2, i3, i4, i5] : 0 <= i1 <= 15 and 0 <= i2 <= 31 and 0 <= i3 <= 31 and 0 <= i4 <= 2 and 0 <= i5 <= 2 };
+            Schedule :=
+                { Stmt_%3__TO__%15[i0, i1, i2, i3, i4, i5] -> [0, i1, i2, i3, i4, i5, 0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt_%3__TO__%15[i0, i1, i2, i3, i4, i5] -> MemRef0[0, i1, i2, i3] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 1]
+                { Stmt_%3__TO__%15[i0, i1, i2, i3, i4, i5] -> MemRef__0__phi[] };
+    	Stmt6
+            Domain :=
+                { Stmt6[0, i1, i2, i3, i4, i5] : 0 <= i1 <= 15 and 0 <= i2 <= 31 and 0 <= i3 <= 31 and 0 <= i4 <= 2 and 0 <= i5 <= 2 };
+            Schedule :=
+                { Stmt6[i0, i1, i2, i3, i4, i5] -> [0, i1, i2, i3, i4, i5, 1] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 1]
+                { Stmt6[i0, i1, i2, i3, i4, i5] -> MemRef__0__phi[] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt6[i0, i1, i2, i3, i4, i5] -> MemRef2[0, i1, i2, i3] };
+    }
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%2 => <Function Return>' in function 'maxpool':
+Invalid Scop!

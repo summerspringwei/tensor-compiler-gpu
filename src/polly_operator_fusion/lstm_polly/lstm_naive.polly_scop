@@ -1,0 +1,140 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'lstm_cell_naive':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%56 => %63' in function 'lstm_cell_naive':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%43 => .preheader' in function 'lstm_cell_naive':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%32 => %42' in function 'lstm_cell_naive':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%23 => %31' in function 'lstm_cell_naive':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%21 => .preheader9' in function 'lstm_cell_naive':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%12 => %20' in function 'lstm_cell_naive':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%10 => .preheader10' in function 'lstm_cell_naive':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '.preheader11 => .preheader8' in function 'lstm_cell_naive':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '.preheader11 => %63' in function 'lstm_cell_naive':
+    Function: lstm_cell_naive
+    Region: %.preheader11---%63
+    Max Loop Depth:  3
+    Invariant Accesses: {
+    }
+    Context:
+    {  :  }
+    Assumed Context:
+    {  :  }
+    Invalid Context:
+    {  : false }
+    Arrays {
+        float MemRef0[*][256]; // Element size 4
+        float MemRef1[*]; // Element size 4
+        float MemRef2[*][256][256]; // Element size 4
+        float MemRef3[*][256]; // Element size 4
+        float MemRef4[*]; // Element size 4
+        float MemRef5[*][256][256]; // Element size 4
+        float MemRef6[*]; // Element size 4
+        float MemRef7[*][256]; // Element size 4
+        float MemRef8[*]; // Element size 4
+    }
+    Arrays (Bounds as pw_affs) {
+        float MemRef0[*][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef1[*]; // Element size 4
+        float MemRef2[*][ { [] -> [(256)] } ][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef3[*][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef4[*]; // Element size 4
+        float MemRef5[*][ { [] -> [(256)] } ][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef6[*]; // Element size 4
+        float MemRef7[*][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef8[*]; // Element size 4
+    }
+    Alias Groups (4):
+        [[ <{ MemRef5[(0), (0), (0)] }, { MemRef5[(3), (255), (256)] }> <{ MemRef4[(0)] }, { MemRef4[(256)] }> <{ MemRef8[(0)] }, { MemRef8[(256)] }> ]]
+        [[ <{ MemRef2[(0), (0), (0)] }, { MemRef2[(3), (255), (256)] }> <{ MemRef4[(0)] }, { MemRef4[(256)] }> <{ MemRef8[(0)] }, { MemRef8[(256)] }> ]]
+        [[ <{ MemRef1[(0)] }, { MemRef1[(256)] }> <{ MemRef4[(0)] }, { MemRef4[(256)] }> <{ MemRef8[(0)] }, { MemRef8[(256)] }> ]]
+        [[ <{ MemRef6[(0)] }, { MemRef6[(256)] }> <{ MemRef4[(0)] }, { MemRef4[(256)] }> <{ MemRef8[(0)] }, { MemRef8[(256)] }> ]]
+    Statements {
+    	Stmt1
+            Domain :=
+                { Stmt1[i0, i1] : 0 <= i0 <= 3 and 0 <= i1 <= 255 };
+            Schedule :=
+                { Stmt1[i0, i1] -> [0, i0, 0, i1, 0, 0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt1[i0, i1] -> MemRef0[i0, i1] };
+    	Stmt2
+            Domain :=
+                { Stmt2[i0, i1, i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 255 };
+            Schedule :=
+                { Stmt2[i0, i1, i2] -> [0, i0, 0, i1, 1, i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef1[i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef2[i0, i1, i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef0[i0, i1] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef0[i0, i1] };
+    	Stmt5
+            Domain :=
+                { Stmt5[i0, i1] : 0 <= i0 <= 3 and 0 <= i1 <= 255 };
+            Schedule :=
+                { Stmt5[i0, i1] -> [0, i0, 1, i1, 0, 0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt5[i0, i1] -> MemRef3[i0, i1] };
+    	Stmt6
+            Domain :=
+                { Stmt6[i0, i1, i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 255 };
+            Schedule :=
+                { Stmt6[i0, i1, i2] -> [0, i0, 1, i1, 1, i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt6[i0, i1, i2] -> MemRef4[i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt6[i0, i1, i2] -> MemRef5[i0, i1, i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt6[i0, i1, i2] -> MemRef3[i0, i1] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt6[i0, i1, i2] -> MemRef3[i0, i1] };
+    	Stmt9
+            Domain :=
+                { Stmt9[i0, i1] : 0 <= i0 <= 3 and 0 <= i1 <= 255 };
+            Schedule :=
+                { Stmt9[i0, i1] -> [0, i0, 2, i1, 0, 0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt9[i0, i1] -> MemRef0[i0, i1] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt9[i0, i1] -> MemRef3[i0, i1] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt9[i0, i1] -> MemRef6[i1] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt9[i0, i1] -> MemRef7[i0, i1] };
+    	Stmt12
+            Domain :=
+                { Stmt12[i0] : 0 <= i0 <= 255 };
+            Schedule :=
+                { Stmt12[i0] -> [1, i0, 0, 0, 0, 0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt12[i0] -> MemRef8[i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt12[i0] -> MemRef7[2, i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt12[i0] -> MemRef7[0, i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt12[i0] -> MemRef7[1, i0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt12[i0] -> MemRef8[i0] };
+    	Stmt14
+            Domain :=
+                { Stmt14[i0] : 0 <= i0 <= 255 };
+            Schedule :=
+                { Stmt14[i0] -> [2, i0, 0, 0, 0, 0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt14[i0] -> MemRef8[i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt14[i0] -> MemRef7[3, i0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt14[i0] -> MemRef4[i0] };
+    }
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%6 => <Function Return>' in function 'lstm_cell_naive':
+Invalid Scop!

@@ -1,0 +1,37 @@
+{
+   "arrays": [
+      {
+         "name": "MemRef0",
+         "sizes": [
+            "*"
+         ],
+         "type": "i32"
+      },
+      {
+         "name": "MemRef1",
+         "sizes": [
+            "*"
+         ],
+         "type": "i32"
+      }
+   ],
+   "context": "{  :  }",
+   "name": "%3---%9",
+   "statements": [
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt0[i0] -> MemRef0[i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt0[i0] -> MemRef1[i0] }"
+            }
+         ],
+         "domain": "{ Stmt0[i0] : 0 <= i0 <= 255 }",
+         "name": "Stmt0",
+         "schedule": "{ Stmt0[i0] -> [i0] }"
+      }
+   ]
+}

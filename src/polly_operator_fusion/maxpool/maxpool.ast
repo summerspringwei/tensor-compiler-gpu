@@ -1,0 +1,26 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'maxpool':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%3 => %15' in function 'maxpool':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%3 => %18' in function 'maxpool':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader => %20' in function 'maxpool':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader9 => %21' in function 'maxpool':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader10 => %22' in function 'maxpool':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader11 => %23' in function 'maxpool':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader12 => %24' in function 'maxpool':
+:: isl ast :: maxpool :: %.preheader12---%24
+
+if (1 && (&MemRef0[0][15][31][32] <= &MemRef2[0][0][0][0] || &MemRef2[0][15][31][32] <= &MemRef0[0][0][0][0]))
+
+    for (int c1 = 0; c1 <= 15; c1 += 1)
+      for (int c2 = 0; c2 <= 31; c2 += 1)
+        for (int c3 = 0; c3 <= 31; c3 += 1)
+          for (int c4 = 0; c4 <= 2; c4 += 1)
+            for (int c5 = 0; c5 <= 2; c5 += 1) {
+              Stmt_%3__TO__%15(0, c1, c2, c3, c4, c5);
+              Stmt6(0, c1, c2, c3, c4, c5);
+            }
+
+else
+    {  /* original code */ }
+
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%2 => <Function Return>' in function 'maxpool':

@@ -1,0 +1,58 @@
+{
+   "arrays": [
+      {
+         "name": "MemRef0",
+         "sizes": [
+            "*",
+            "16",
+            "32",
+            "32"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef2",
+         "sizes": [
+            "*",
+            "16",
+            "32",
+            "32"
+         ],
+         "type": "float"
+      }
+   ],
+   "context": "{  :  }",
+   "name": "%.preheader12---%24",
+   "statements": [
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt_%3__TO__%15[i0, i1, i2, i3, i4, i5] -> MemRef0[0, i1, i2, i3] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt_%3__TO__%15[i0, i1, i2, i3, i4, i5] -> MemRef__0__phi[] }"
+            }
+         ],
+         "domain": "{ Stmt_%3__TO__%15[0, i1, i2, i3, i4, i5] : 0 <= i1 <= 15 and 0 <= i2 <= 31 and 0 <= i3 <= 31 and 0 <= i4 <= 2 and 0 <= i5 <= 2 }",
+         "name": "Stmt_%3__TO__%15",
+         "schedule": "{ Stmt_%3__TO__%15[i0, i1, i2, i3, i4, i5] -> [0, i1, i2, i3, i4, i5, 0] }"
+      },
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt6[i0, i1, i2, i3, i4, i5] -> MemRef__0__phi[] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt6[i0, i1, i2, i3, i4, i5] -> MemRef2[0, i1, i2, i3] }"
+            }
+         ],
+         "domain": "{ Stmt6[0, i1, i2, i3, i4, i5] : 0 <= i1 <= 15 and 0 <= i2 <= 31 and 0 <= i3 <= 31 and 0 <= i4 <= 2 and 0 <= i5 <= 2 }",
+         "name": "Stmt6",
+         "schedule": "{ Stmt6[i0, i1, i2, i3, i4, i5] -> [0, i1, i2, i3, i4, i5, 1] }"
+      }
+   ]
+}

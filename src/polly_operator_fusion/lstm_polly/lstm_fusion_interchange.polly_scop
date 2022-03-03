@@ -1,0 +1,111 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'lstm_cell_fusion_interchange_fusion':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%13 => %26' in function 'lstm_cell_fusion_interchange_fusion':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%10 => %34' in function 'lstm_cell_fusion_interchange_fusion':
+Invalid Scop!
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '.preheader => %51' in function 'lstm_cell_fusion_interchange_fusion':
+    Function: lstm_cell_fusion_interchange_fusion
+    Region: %.preheader---%51
+    Max Loop Depth:  3
+    Invariant Accesses: {
+    }
+    Context:
+    {  :  }
+    Assumed Context:
+    {  :  }
+    Invalid Context:
+    {  : false }
+    Arrays {
+        float MemRef0[*][256]; // Element size 4
+        float MemRef1[*][256]; // Element size 4
+        float MemRef2[*]; // Element size 4
+        float MemRef3[*][256][256]; // Element size 4
+        float MemRef4[*]; // Element size 4
+        float MemRef5[*]; // Element size 4
+        float MemRef6[*][256]; // Element size 4
+        float MemRef7[*]; // Element size 4
+    }
+    Arrays (Bounds as pw_affs) {
+        float MemRef0[*][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef1[*][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef2[*]; // Element size 4
+        float MemRef3[*][ { [] -> [(256)] } ][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef4[*]; // Element size 4
+        float MemRef5[*]; // Element size 4
+        float MemRef6[*][ { [] -> [(256)] } ]; // Element size 4
+        float MemRef7[*]; // Element size 4
+    }
+    Alias Groups (3):
+        [[ <{ MemRef2[(0)] }, { MemRef2[(256)] }> <{ MemRef4[(0)] }, { MemRef4[(256)] }> <{ MemRef7[(0)] }, { MemRef7[(256)] }> ]]
+        [[ <{ MemRef5[(0)] }, { MemRef5[(256)] }> <{ MemRef4[(0)] }, { MemRef4[(256)] }> <{ MemRef7[(0)] }, { MemRef7[(256)] }> ]]
+        [[ <{ MemRef3[(0), (0), (0)] }, { MemRef3[(3), (255), (256)] }> <{ MemRef4[(0)] }, { MemRef4[(256)] }> <{ MemRef7[(0)] }, { MemRef7[(256)] }> ]]
+    Statements {
+    	Stmt1
+            Domain :=
+                { Stmt1[i0, i1] : 0 <= i0 <= 255 and 0 <= i1 <= 3 };
+            Schedule :=
+                { Stmt1[i0, i1] -> [i0, 0, i1, 0, 0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt1[i0, i1] -> MemRef0[i1, i0] };
+    	Stmt1_b
+            Domain :=
+                { Stmt1_b[i0, i1] : 0 <= i0 <= 255 and 0 <= i1 <= 3 };
+            Schedule :=
+                { Stmt1_b[i0, i1] -> [i0, 0, i1, 1, 0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt1_b[i0, i1] -> MemRef1[i1, i0] };
+    	Stmt2
+            Domain :=
+                { Stmt2[i0, i1, i2] : 0 <= i0 <= 255 and 0 <= i1 <= 3 and 0 <= i2 <= 255 };
+            Schedule :=
+                { Stmt2[i0, i1, i2] -> [i0, 0, i1, 2, i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef2[i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef3[i1, i0, i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef0[i1, i0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef0[i1, i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef4[i2] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef1[i1, i0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt2[i0, i1, i2] -> MemRef1[i1, i0] };
+    	Stmt3
+            Domain :=
+                { Stmt3[i0, i1] : 0 <= i0 <= 255 and 0 <= i1 <= 3 };
+            Schedule :=
+                { Stmt3[i0, i1] -> [i0, 0, i1, 3, 0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt3[i0, i1] -> MemRef0[i1, i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt3[i0, i1] -> MemRef1[i1, i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt3[i0, i1] -> MemRef5[i0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt3[i0, i1] -> MemRef6[i1, i0] };
+    	Stmt4
+            Domain :=
+                { Stmt4[i0] : 0 <= i0 <= 255 };
+            Schedule :=
+                { Stmt4[i0] -> [i0, 1, 0, 0, 0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt4[i0] -> MemRef7[i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt4[i0] -> MemRef6[2, i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt4[i0] -> MemRef6[0, i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt4[i0] -> MemRef6[1, i0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt4[i0] -> MemRef7[i0] };
+            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt4[i0] -> MemRef6[3, i0] };
+            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
+                { Stmt4[i0] -> MemRef4[i0] };
+    }
+Printing analysis 'Polly - Create polyhedral description of Scops' for region: '%6 => <Function Return>' in function 'lstm_cell_fusion_interchange_fusion':
+Invalid Scop!

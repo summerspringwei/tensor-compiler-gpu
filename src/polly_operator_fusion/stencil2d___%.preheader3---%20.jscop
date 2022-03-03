@@ -1,0 +1,43 @@
+{
+   "arrays": [
+      {
+         "name": "MemRef0",
+         "sizes": [
+            "*",
+            "10"
+         ],
+         "type": "float"
+      }
+   ],
+   "context": "{  :  }",
+   "name": "%.preheader3---%20",
+   "statements": [
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef0[2 + i1, 1 + i2] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef0[1 + i1, 2 + i2] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef0[i1, 1 + i2] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef0[1 + i1, i2] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef0[1 + i1, 1 + i2] }"
+            }
+         ],
+         "domain": "{ Stmt2[i0, i1, i2] : 0 <= i0 <= 9 and 0 <= i1 <= 7 and 0 <= i2 <= 7 }",
+         "name": "Stmt2",
+         "schedule": "{ Stmt2[i0, i1, i2] -> [i0, i1, i2] }"
+      }
+   ]
+}

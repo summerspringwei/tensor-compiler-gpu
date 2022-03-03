@@ -1,0 +1,21 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'softmax':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%8 => %12' in function 'softmax':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%3 => .preheader' in function 'softmax':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%3 => %12' in function 'softmax':
+:: isl ast :: softmax :: %3---%12
+
+if (1 && (&MemRef1[256] <= &MemRef2[0] || &MemRef2[256] <= &MemRef1[0]))
+
+    {
+for (int c0 = 0; c0 <= 255; c0 += 1)
+  Stmt0(c0);
+Stmt__preheader();
+for (int c0 = 0; c0 <= 255; c0 += 1)
+  Stmt2(c0);
+    }
+
+else
+    {  /* original code */ }
+
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%2 => <Function Return>' in function 'softmax':

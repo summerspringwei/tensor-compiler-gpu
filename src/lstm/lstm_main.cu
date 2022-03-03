@@ -22,8 +22,16 @@
 // #define LSTM_DEV_FUNC  { \
 //     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v8<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 32*1024);};
 
+// #define LSTM_DEV_FUNC  { \
+//     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 48*1024);};
+
 #define LSTM_DEV_FUNC  { \
-    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 48*1024);};
+lstm_reuse_shared_memory_v9_block_sync<1, 10, 256, 100><<<dim3(320, 1, 1), dim3(32, 8, 1), 48*1024>>>( \
+    (lstm_data.d_inputs_timestep), (lstm_data.d_outputs_timestep), \
+    (lstm_data.d_c_wavefront), (lstm_data.d_h_wavefront), (lstm_data.d_input_wavefront), \
+    (lstm_data.d_weight_input_wavefront), (lstm_data.d_weight_state_wavefront), (lstm_data.d_bias), \
+    (lstm_data.d_output_buffer) ); \
+    };
 
 #define CUDA_CHECK_RESULT if (result != cudaSuccess) \
     { \
@@ -39,7 +47,7 @@ void benchmark_lstm(int argc, char** argv){
     const int batch = 1;
     const int num_layer = 10, num_timestep = 100, num_hidden = 256;
     
-    int steps = 10000;
+    int steps = 100;
     if(argc > 1){
         steps = atoi(argv[1]);
     }
@@ -67,7 +75,7 @@ void benchmark_lstm(int argc, char** argv){
     int numThreads = 64*4, numBlocksPerSm=0; \
     cudaDeviceProp deviceProp; \
     cudaGetDeviceProperties(&deviceProp, dev); \
-    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, (void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, numThreads, 0); \
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, (void*)lstm_reuse_shared_memory_v9_block_sync<1, 10, 256, 100>, numThreads, 0); \
     printf("OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);\
     void *encoder_kernelArgs[] = { (void *)&(lstm_data.d_inputs_timestep), (void *)&(lstm_data.d_outputs_timestep), \
         (void *)&(lstm_data.d_c_wavefront), (void *)&(lstm_data.d_h_wavefront), (void *)&(lstm_data.d_input_wavefront), \
@@ -84,26 +92,26 @@ void benchmark_lstm(int argc, char** argv){
     std::vector<float> h_state_timestep(batch * num_layer * num_hidden);
     checkCuda(cudaMemcpy(c_state_timestep.data(), lstm_data.d_c_wavefront, sizeof(float) * c_state_timestep.size() , cudaMemcpyDeviceToHost));
     checkCuda(cudaMemcpy(h_state_timestep.data(), lstm_data.d_h_wavefront, sizeof(float) * h_state_timestep.size() , cudaMemcpyDeviceToHost));
-    // printf("%ld\n", encoder_output_timestep.size());
-    printf("c_state\n");
-    for(int i=0;i<num_layer; ++i){
-        for(int j=0;j<num_hidden;++j){
-            printf("%.3f ", c_state_timestep[i*num_hidden + j]);
-        }printf("\n");
-    }
-    printf("h_state\n");
-    for(int i=0;i<num_layer; ++i){
-        for(int j=0;j<num_hidden;++j){
-            printf("%.3f ", h_state_timestep[i*num_hidden + j]);
-        }printf("\n");
-    }
-    printf("lstm_output_timestep\n");
-    for(int i=0;i<num_timestep; ++i){
-        printf("step: %d\n", i);
-        for(int j=0;j<num_hidden;++j){
-            printf("%.3f ", lstm_output_timestep[i*num_hidden + j]);
-        }printf("\n");
-    }
+    
+    // printf("c_state\n");
+    // for(int i=0;i<num_layer; ++i){
+    //     for(int j=0;j<num_hidden;++j){
+    //         printf("%.3f ", c_state_timestep[i*num_hidden + j]);
+    //     }printf("\n");
+    // }
+    // printf("h_state\n");
+    // for(int i=0;i<num_layer; ++i){
+    //     for(int j=0;j<num_hidden;++j){
+    //         printf("%.3f ", h_state_timestep[i*num_hidden + j]);
+    //     }printf("\n");
+    // }
+    // printf("lstm_output_timestep\n");
+    // for(int i=0;i<num_timestep; ++i){
+    //     printf("step: %d\n", i);
+    //     for(int j=0;j<num_hidden;++j){
+    //         printf("%.3f ", lstm_output_timestep[i*num_hidden + j]);
+    //     }printf("\n");
+    // }
     auto result = cudaGetLastError();
     CUDA_CHECK_RESULT
     return;

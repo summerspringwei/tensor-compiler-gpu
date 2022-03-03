@@ -1,0 +1,15 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'relu':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Calculate dependences' for region: '%3 => %10' in function 'relu':
+Printing analysis 'Polly - Calculate dependences' for region: '%3 => %11' in function 'relu':
+	RAW dependences:
+		{ Stmt_%3__TO__%10[i0] -> Stmt1[i0] : 0 <= i0 <= 255 }
+	WAR dependences:
+		{ Stmt1[i0] -> Stmt_%3__TO__%10[1 + i0] : 0 <= i0 <= 254 }
+	WAW dependences:
+		{ Stmt_%3__TO__%10[i0] -> Stmt_%3__TO__%10[1 + i0] : 0 <= i0 <= 254 }
+	Reduction dependences:
+		{  }
+	Transitive closure of reduction dependences:
+		{  }
+Printing analysis 'Polly - Calculate dependences' for region: '%2 => <Function Return>' in function 'relu':

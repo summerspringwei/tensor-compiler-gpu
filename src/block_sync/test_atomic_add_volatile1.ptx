@@ -1,0 +1,61 @@
+
+Fatbin ptx code:
+================
+arch = sm_80
+code version = [7,0]
+producer = <unknown>
+host = linux
+compile_size = 64bit
+compressed
+
+
+
+
+
+
+
+
+.version 7.0
+.target sm_80
+.address_size 64
+
+
+
+.visible .entry _Z15test_atomic_addPj(
+.param .u64 _Z15test_atomic_addPj_param_0
+)
+{
+.reg .pred %p<3>;
+.reg .b32 %r<11>;
+.reg .b64 %rd<5>;
+
+
+ld.param.u64 %rd2, [_Z15test_atomic_addPj_param_0];
+cvta.to.global.u64 %rd3, %rd2;
+mov.u32 %r1, %ctaid.x;
+shr.u32 %r2, %r1, 2;
+mov.u32 %r3, %ntid.x;
+mov.u32 %r4, %tid.x;
+mad.lo.s32 %r5, %r2, %r3, %r4;
+mul.wide.u32 %rd4, %r5, 4;
+add.s64 %rd1, %rd3, %rd4;
+atom.global.add.u32 %r6, [%rd1], 1;
+
+BB0_1:
+ld.volatile.global.u32 %r7, [%rd1];
+setp.ne.s32	%p1, %r7, 4;
+@%p1 bra BB0_1;
+
+and.b32 %r8, %r1, 3;
+setp.ne.s32	%p2, %r8, 0;
+@%p2 bra BB0_4;
+
+ld.volatile.global.u32 %r9, [%rd1];
+add.s32 %r10, %r9, 1;
+st.volatile.global.u32 [%rd1], %r10;
+
+BB0_4:
+ret;
+}
+
+

@@ -1,0 +1,34 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'lstm_cell_naive':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Calculate dependences' for region: '%56 => %63' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Calculate dependences' for region: '%43 => .preheader' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Calculate dependences' for region: '%32 => %42' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Calculate dependences' for region: '%23 => %31' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Calculate dependences' for region: '%21 => .preheader9' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Calculate dependences' for region: '%12 => %20' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Calculate dependences' for region: '%10 => .preheader10' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Calculate dependences' for region: '.preheader11 => .preheader8' in function 'lstm_cell_naive':
+Printing analysis 'Polly - Calculate dependences' for region: '.preheader11 => %63' in function 'lstm_cell_naive':
+	RAW dependences:{ 
+		Stmt1[i0, i1] -> Stmt2[i0, i1, 0] : 0 <= i0 <= 3 and 0 <= i1 <= 255; 
+		Stmt6[i0, i1, i2] -> Stmt6[i0, i1, 1 + i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 254; 
+		Stmt9[i0, i1] -> Stmt12[i1] : 0 <= i0 <= 2 and 0 <= i1 <= 255; 
+		Stmt2[i0, i1, i2] -> Stmt2[i0, i1, 1 + i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 254; 
+		Stmt5[i0, i1] -> Stmt6[i0, i1, 0] : 0 <= i0 <= 3 and 0 <= i1 <= 255;
+		Stmt12[i0] -> Stmt14[i0] : 0 <= i0 <= 255; Stmt9[3, i1] -> Stmt14[i1] : 0 <= i1 <= 255; 
+		Stmt6[i0, i1, 255] -> Stmt9[i0, i1] : 0 <= i0 <= 3 and 0 <= i1 <= 255; 
+		Stmt2[i0, i1, 255] -> Stmt9[i0, i1] : 0 <= i0 <= 3 and 0 <= i1 <= 255 }
+	WAR dependences:{ 
+		Stmt6[i0, i1, i2] -> Stmt14[i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 255; 
+		Stmt6[i0, i1, i2] -> Stmt6[i0, i1, 1 + i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 254;
+		Stmt2[i0, i1, i2] -> Stmt2[i0, i1, 1 + i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 254 }
+	WAW dependences:{ 
+		Stmt2[i0, i1, i2] -> Stmt2[i0, i1, 1 + i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 254; 
+		Stmt5[i0, i1] -> Stmt6[i0, i1, 0] : 0 <= i0 <= 3 and 0 <= i1 <= 255; 
+		Stmt6[i0, i1, i2] -> Stmt6[i0, i1, 1 + i2] : 0 <= i0 <= 3 and 0 <= i1 <= 255 and 0 <= i2 <= 254; 
+		Stmt1[i0, i1] -> Stmt2[i0, i1, 0] : 0 <= i0 <= 3 and 0 <= i1 <= 255 }
+	Reduction dependences:
+		{  }
+	Transitive closure of reduction dependences:
+		{  }
+Printing analysis 'Polly - Calculate dependences' for region: '%6 => <Function Return>' in function 'lstm_cell_naive':

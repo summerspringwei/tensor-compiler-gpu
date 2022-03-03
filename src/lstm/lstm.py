@@ -103,11 +103,25 @@ def run_lstm_cell():
     h_state=np.reshape(h_state, (1, num_hidden))
     lstm_cell = LSTMCell(256, "LSTM")
     c_state, state = lstm_cell.call(input, (c_state, h_state))
-    
+
     print("c_state")
     print(state[0])
     print("h_state")
     print(state[1])
+
+
+def call(self, inputs, state):
+    c, h = state
+    res = []
+    for i in range(4):
+        res.append(math_ops.matmul(
+            inputs, self.W[i]) + math_ops.matmul(h, self.U[i]) + self.b[i])
+    i, j, f, o = (res[0], res[1], res[2], res[3])
+    new_c = (c * math_ops.sigmoid(f + 1.0) +
+            math_ops.sigmoid(i) * math_ops.tanh(j))
+    new_h = math_ops.tanh(new_c) * math_ops.sigmoid(o)
+    new_state = (new_c, new_h)
+    return new_h, new_state
 
 
 if __name__=="__main__":

@@ -1,0 +1,83 @@
+{
+   "arrays": [
+      {
+         "name": "MemRef1",
+         "sizes": [
+            "*"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef2",
+         "sizes": [
+            "*"
+         ],
+         "type": "float"
+      }
+   ],
+   "context": "{  :  }",
+   "name": "%3---%12",
+   "statements": [
+      {
+         "accesses": [
+            {
+               "kind": "write",
+               "relation": "{ Stmt0[i0] -> MemRef__024__phi[] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt0[i0] -> MemRef__024__phi[] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt0[i0] -> MemRef1[i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt0[i0] -> MemRef2[i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt0[i0] -> MemRef__lcssa__phi[] }"
+            }
+         ],
+         "domain": "{ Stmt0[i0] : 0 <= i0 <= 255 }",
+         "name": "Stmt0",
+         "schedule": "{ Stmt0[i0] -> [0, i0] }"
+      },
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt__preheader[] -> MemRef__lcssa__phi[] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt__preheader[] -> MemRef__lcssa[] }"
+            }
+         ],
+         "domain": "{ Stmt__preheader[] }",
+         "name": "Stmt__preheader",
+         "schedule": "{ Stmt__preheader[] -> [1, 0] }"
+      },
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0] -> MemRef2[i0] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0] -> MemRef__lcssa[] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt2[i0] -> MemRef2[i0] }"
+            }
+         ],
+         "domain": "{ Stmt2[i0] : 0 <= i0 <= 255 }",
+         "name": "Stmt2",
+         "schedule": "{ Stmt2[i0] -> [2, i0] }"
+      }
+   ]
+}

@@ -256,8 +256,10 @@ ifeq ($(dbg),1)
 else
       BUILD_TYPE := release
 endif
-NVCCFLAGS += -g -G -O2
-BUILD_TYPE := debug
+# NVCCFLAGS += -g -G -O2
+# BUILD_TYPE := debug
+NVCCFLAGS += -O2
+BUILD_TYPE := release
 
 ALL_CCFLAGS :=
 ALL_CCFLAGS += $(NVCCFLAGS)

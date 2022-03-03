@@ -1,0 +1,52 @@
+{
+   "arrays": [
+      {
+         "name": "MemRef0",
+         "sizes": [
+            "*"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef2",
+         "sizes": [
+            "*"
+         ],
+         "type": "float"
+      }
+   ],
+   "context": "{  :  }",
+   "name": "%3---%11",
+   "statements": [
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt_%3__TO__%10[i0] -> MemRef0[i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt_%3__TO__%10[i0] -> MemRef_storemerge__phi[] }"
+            }
+         ],
+         "domain": "{ Stmt_%3__TO__%10[i0] : 0 <= i0 <= 255 }",
+         "name": "Stmt_%3__TO__%10",
+         "schedule": "{ Stmt_%3__TO__%10[i0] -> [i0, 0] }"
+      },
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt1[i0] -> MemRef_storemerge__phi[] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt1[i0] -> MemRef2[i0] }"
+            }
+         ],
+         "domain": "{ Stmt1[i0] : 0 <= i0 <= 255 }",
+         "name": "Stmt1",
+         "schedule": "{ Stmt1[i0] -> [i0, 1] }"
+      }
+   ]
+}

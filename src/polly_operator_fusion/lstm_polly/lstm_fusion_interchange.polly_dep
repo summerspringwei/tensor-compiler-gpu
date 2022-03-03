@@ -1,0 +1,16 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'lstm_cell_fusion_interchange_fusion':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Calculate dependences' for region: '%13 => %26' in function 'lstm_cell_fusion_interchange_fusion':
+Printing analysis 'Polly - Calculate dependences' for region: '%10 => %34' in function 'lstm_cell_fusion_interchange_fusion':
+Printing analysis 'Polly - Calculate dependences' for region: '.preheader => %51' in function 'lstm_cell_fusion_interchange_fusion':
+	RAW dependences:
+		{ Stmt1[i0, i1] -> Stmt2[i0, i1, 0] : 0 <= i0 <= 255 and 0 <= i1 <= 3; Stmt2[i0, i1, i2] -> Stmt2[i0, i1, 1 + i2] : 0 <= i0 <= 255 and 0 <= i1 <= 3 and 0 <= i2 <= 254; Stmt2[i0, i1, 255] -> Stmt3[i0, i1] : 0 <= i0 <= 255 and 0 <= i1 <= 3; Stmt3[i0, i1] -> Stmt4[i0] : 0 <= i0 <= 255 and 0 <= i1 <= 3; Stmt4[i0] -> Stmt2[o0, o1, i0] : i0 >= 0 and i0 < o0 <= 255 and 0 <= o1 <= 3; Stmt1_b[i0, i1] -> Stmt2[i0, i1, 0] : 0 <= i0 <= 255 and 0 <= i1 <= 3 }
+	WAR dependences:
+		{ Stmt2[i0, i1, i2] -> Stmt4[i2] : i0 >= 0 and 0 <= i1 <= 3 and i0 <= i2 <= 255; Stmt2[i0, i1, i2] -> Stmt2[i0, i1, 1 + i2] : 0 <= i0 <= 255 and 0 <= i1 <= 3 and 0 <= i2 <= 254 }
+	WAW dependences:
+		{ Stmt1_b[i0, i1] -> Stmt2[i0, i1, 0] : 0 <= i0 <= 255 and 0 <= i1 <= 3; Stmt2[i0, i1, i2] -> Stmt2[i0, i1, 1 + i2] : 0 <= i0 <= 255 and 0 <= i1 <= 3 and 0 <= i2 <= 254; Stmt1[i0, i1] -> Stmt2[i0, i1, 0] : 0 <= i0 <= 255 and 0 <= i1 <= 3 }
+	Reduction dependences:
+		{  }
+	Transitive closure of reduction dependences:
+		{  }
+Printing analysis 'Polly - Calculate dependences' for region: '%6 => <Function Return>' in function 'lstm_cell_fusion_interchange_fusion':

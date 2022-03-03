@@ -1,0 +1,24 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'lstm_cell_fusion_interchange_fusion':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%13 => %26' in function 'lstm_cell_fusion_interchange_fusion':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%10 => %34' in function 'lstm_cell_fusion_interchange_fusion':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader => %51' in function 'lstm_cell_fusion_interchange_fusion':
+:: isl ast :: lstm_cell_fusion_interchange_fusion :: %.preheader---%51
+
+if (1 && (&MemRef7[256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef7[0]) && (&MemRef2[256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef2[0]) && (&MemRef5[256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef5[0]) && (&MemRef3[3][255][256] <= &MemRef4[0] || &MemRef4[256] <= &MemRef3[0][0][0]) && (&MemRef2[256] <= &MemRef7[0] || &MemRef7[256] <= &MemRef2[0]) && (&MemRef5[256] <= &MemRef7[0] || &MemRef7[256] <= &MemRef5[0]) && (&MemRef3[3][255][256] <= &MemRef7[0] || &MemRef7[256] <= &MemRef3[0][0][0]))
+
+    for (int c0 = 0; c0 <= 255; c0 += 1) {
+      for (int c1 = 0; c1 <= 3; c1 += 1) {
+        Stmt1(c0, c1);
+        Stmt1_b(c0, c1);
+        for (int c2 = 0; c2 <= 255; c2 += 1)
+          Stmt2(c0, c1, c2);
+        Stmt3(c0, c1);
+      }
+      Stmt4(c0);
+    }
+
+else
+    {  /* original code */ }
+
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%6 => <Function Return>' in function 'lstm_cell_fusion_interchange_fusion':

@@ -1,0 +1,21 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'stencil2d':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%2 => .loopexit' in function 'stencil2d':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader => %18' in function 'stencil2d':
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '.preheader3 => %20' in function 'stencil2d':
+:: isl ast :: stencil2d :: %.preheader3---%20
+
+if (1)
+
+    for (int c0 = 0; c0 <= 9; c0 += 1)
+      for (int c1 = 0; c1 <= 7; c1 += 1)
+        for (int c2 = 0; c2 <= 7; c2 += 1)
+          Stmt2(c0, c1, c2);
+
+else
+    {  /* original code */ }
+
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%1 => <Function Return>' in function 'stencil2d':
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'main':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Generate an AST from the SCoP (isl)' for region: '%0 => <Function Return>' in function 'main':

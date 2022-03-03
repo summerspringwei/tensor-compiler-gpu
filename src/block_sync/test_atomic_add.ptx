@@ -1,0 +1,115 @@
+
+Fatbin elf code:
+================
+arch = sm_80
+code version = [1,7]
+producer = <unknown>
+host = linux
+compile_size = 64bit
+
+Fatbin elf code:
+================
+arch = sm_80
+code version = [1,7]
+producer = <unknown>
+host = linux
+compile_size = 64bit
+
+Fatbin ptx code:
+================
+arch = sm_80
+code version = [7,0]
+producer = <unknown>
+host = linux
+compile_size = 64bit
+compressed
+
+
+
+
+
+
+
+
+.version 7.0
+.target sm_80
+.address_size 64
+
+
+.extern .func (.param .b32 func_retval0) vprintf
+(
+.param .b64 vprintf_param_0,
+.param .b64 vprintf_param_1
+)
+;
+.global .align 4 .b8 c_sync[8];
+.global .align 1 .b8 $str[12] = {60, 37, 100, 32, 37, 100, 62, 32, 37, 117, 10, 0};
+
+.visible .entry _Z15test_atomic_addPj(
+.param .u64 _Z15test_atomic_addPj_param_0
+)
+{
+.local .align 8 .b8 __local_depot0[16];
+.reg .b64 %SP;
+.reg .b64 %SPL;
+.reg .pred %p<4>;
+.reg .b32 %r<11>;
+.reg .b64 %rd<8>;
+
+
+mov.u64 %SPL, __local_depot0;
+cvta.local.u64 %SP, %SPL;
+mov.u32 %r1, %tid.x;
+and.b32 %r2, %r1, 31;
+setp.ne.s32	%p1, %r2, 0;
+@%p1 bra BB0_2;
+
+mov.u64 %rd2, c_sync;
+atom.global.add.u32 %r4, [%rd2], 1;
+
+BB0_2:
+mov.u32 %r5, %nctaid.x;
+shr.u32 %r6, %r1, 5;
+mul.lo.s32 %r3, %r5, %r6;
+add.u64 %rd3, %SP, 0;
+add.u64 %rd1, %SPL, 0;
+
+BB0_3:
+ld.volatile.global.u32 %r7, [c_sync];
+setp.lt.u32	%p2, %r7, %r3;
+@%p2 bra BB0_3;
+
+@%p1 bra BB0_6;
+
+ld.volatile.global.u32 %r8, [c_sync];
+mov.u32 %r9, %ctaid.x;
+st.local.u32 [%rd1], %r9;
+st.local.u32 [%rd1+4], %r1;
+st.local.u32 [%rd1+8], %r8;
+mov.u64 %rd6, $str;
+cvta.global.u64 %rd7, %rd6;
+
+	{
+.reg .b32 temp_param_reg;
+
+	.param .b64 param0;
+st.param.b64	[param0+0], %rd7;
+.param .b64 param1;
+st.param.b64	[param1+0], %rd3;
+.param .b32 retval0;
+call.uni (retval0), 
+vprintf, 
+(
+param0, 
+param1
+);
+ld.param.b32	%r10, [retval0+0];
+
+
+	}
+
+BB0_6:
+ret;
+}
+
+

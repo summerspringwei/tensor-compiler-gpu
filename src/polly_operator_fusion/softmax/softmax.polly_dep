@@ -1,0 +1,16 @@
+Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'softmax':
+Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
+Printing analysis 'Polly - Calculate dependences' for region: '%8 => %12' in function 'softmax':
+Printing analysis 'Polly - Calculate dependences' for region: '%3 => .preheader' in function 'softmax':
+Printing analysis 'Polly - Calculate dependences' for region: '%3 => %12' in function 'softmax':
+RAW dependences:
+	{ Stmt0[255] -> Stmt__preheader[]; Stmt0[i0] -> Stmt0[1 + i0] : 0 <= i0 <= 254; Stmt__preheader[] -> Stmt2[o0] : 0 <= o0 <= 255; Stmt0[i0] -> Stmt2[i0] : 0 <= i0 <= 255 }
+WAR dependences:
+	{ Stmt0[i0] -> Stmt0[1 + i0] : 0 <= i0 <= 254 }
+WAW dependences:
+	{ Stmt0[i0] -> Stmt0[1 + i0] : 0 <= i0 <= 254; Stmt0[i0] -> Stmt2[i0] : 0 <= i0 <= 255 }
+	Reduction dependences:
+		{  }
+	Transitive closure of reduction dependences:
+		{  }
+Printing analysis 'Polly - Calculate dependences' for region: '%2 => <Function Return>' in function 'softmax':

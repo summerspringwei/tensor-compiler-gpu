@@ -1,0 +1,184 @@
+{
+   "arrays": [
+      {
+         "name": "MemRef0",
+         "sizes": [
+            "*",
+            "256"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef1",
+         "sizes": [
+            "*",
+            "256"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef2",
+         "sizes": [
+            "*"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef3",
+         "sizes": [
+            "*",
+            "256",
+            "256"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef4",
+         "sizes": [
+            "*"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef5",
+         "sizes": [
+            "*"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef6",
+         "sizes": [
+            "*",
+            "256"
+         ],
+         "type": "float"
+      },
+      {
+         "name": "MemRef7",
+         "sizes": [
+            "*"
+         ],
+         "type": "float"
+      }
+   ],
+   "context": "{  :  }",
+   "name": "%.preheader---%51",
+   "statements": [
+      {
+         "accesses": [
+            {
+               "kind": "write",
+               "relation": "{ Stmt1[i0, i1] -> MemRef0[i1, i0] }"
+            }
+         ],
+         "domain": "{ Stmt1[i0, i1] : 0 <= i0 <= 255 and 0 <= i1 <= 3 }",
+         "name": "Stmt1",
+         "schedule": "{ Stmt1[i0, i1] -> [i0, 0, i1, 0, 0] }"
+      },
+      {
+         "accesses": [
+            {
+               "kind": "write",
+               "relation": "{ Stmt1_b[i0, i1] -> MemRef1[i1, i0] }"
+            }
+         ],
+         "domain": "{ Stmt1_b[i0, i1] : 0 <= i0 <= 255 and 0 <= i1 <= 3 }",
+         "name": "Stmt1_b",
+         "schedule": "{ Stmt1_b[i0, i1] -> [i0, 0, i1, 1, 0] }"
+      },
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef2[i2] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef3[i1, i0, i2] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef0[i1, i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef0[i1, i0] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef4[i2] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef1[i1, i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt2[i0, i1, i2] -> MemRef1[i1, i0] }"
+            }
+         ],
+         "domain": "{ Stmt2[i0, i1, i2] : 0 <= i0 <= 255 and 0 <= i1 <= 3 and 0 <= i2 <= 255 }",
+         "name": "Stmt2",
+         "schedule": "{ Stmt2[i0, i1, i2] -> [i0, 0, i1, 2, i2] }"
+      },
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt3[i0, i1] -> MemRef0[i1, i0] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt3[i0, i1] -> MemRef1[i1, i0] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt3[i0, i1] -> MemRef5[i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt3[i0, i1] -> MemRef6[i1, i0] }"
+            }
+         ],
+         "domain": "{ Stmt3[i0, i1] : 0 <= i0 <= 255 and 0 <= i1 <= 3 }",
+         "name": "Stmt3",
+         "schedule": "{ Stmt3[i0, i1] -> [i0, 0, i1, 3, 0] }"
+      },
+      {
+         "accesses": [
+            {
+               "kind": "read",
+               "relation": "{ Stmt4[i0] -> MemRef7[i0] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt4[i0] -> MemRef6[2, i0] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt4[i0] -> MemRef6[0, i0] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt4[i0] -> MemRef6[1, i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt4[i0] -> MemRef7[i0] }"
+            },
+            {
+               "kind": "read",
+               "relation": "{ Stmt4[i0] -> MemRef6[3, i0] }"
+            },
+            {
+               "kind": "write",
+               "relation": "{ Stmt4[i0] -> MemRef4[i0] }"
+            }
+         ],
+         "domain": "{ Stmt4[i0] : 0 <= i0 <= 255 }",
+         "name": "Stmt4",
+         "schedule": "{ Stmt4[i0] -> [i0, 1, 0, 0, 0] }"
+      }
+   ]
+}
