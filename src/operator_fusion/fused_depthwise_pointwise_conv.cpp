@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include "../utils.h"
 
 const int height = 56, width = 56, in_channel = 24, out_channel = 24,
           kernel_height = 3, kernel_width = 3;
@@ -75,47 +76,13 @@ void fused_depthwise_pointwise_conv(float *input, float *dw_weight,
 }
 
 
-
-void init_data(float* input, float* dw_weight, float* pw_weight, float* output){
-  for (int ic = 0; ic < out_channel; ++ic) {
-    for (int h = 0; h < height; ++h) {
-      for (int w = 0; w < width; ++w) {
-        input[ic * height * width + h * width + w] = 1;
-      }
-    }
-  }
-
-  for (int ic = 0; ic < in_channel; ++ic) {
-    for (int h = 0; h < kernel_height; ++h) {
-      for (int w = 0; w < kernel_width; ++w) {
-        dw_weight[ic * kernel_height * kernel_width + h * kernel_width + w] = 1;
-      }
-    }
-  }
-
-  for (int oc = 0; oc < out_channel; ++oc) {
-    for (int ic = 0; ic < out_channel; ++ic) {
-      pw_weight[oc * in_channel + ic] = 1;
-    }
-  }
-
-  for (int oc = 0; oc < out_channel; ++oc) {
-    for (int h = 0; h < height; ++h) {
-      for (int w = 0; w < width; ++w) {
-        output[oc * height * width + h * width + w] = 0;
-      }
-    }
-  }  
-}
-
-
 int main() {
   float *input = new float[in_channel * height * width];
   float *dw_weight = new float[in_channel * kernel_height * kernel_width];
   float *pw_weight = new float[out_channel * in_channel];
   float *output = new float[in_channel * height * width];
 
-  init_data(input, dw_weight, pw_weight, output);
+  init_conv_conv_fusion_data(input, dw_weight, pw_weight, output);
   // fused_avgpool_pointwise_conv(input, pw_weight, output);
   fused_depthwise_pointwise_conv(input,dw_weight, pw_weight, output);
 

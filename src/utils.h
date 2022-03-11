@@ -2,7 +2,8 @@
 #define UTILS_H
 
 #include <vector>
-
+#include <cstdlib>
+#include <time.h> 
 typedef unsigned long uint64_t;
 
 uint64_t get_shape_size(std::vector<uint64_t> shape){
@@ -28,6 +29,75 @@ void print_and_check(std::vector<float>& output, float expected){
   }
 }
 
+/**
+ * @brief Init input and weights for two continuos conv
+ * 
+ * @param input 
+ * @param dw_weight weight for first depthwise conv
+ * @param pw_weight weight for second pointwise conv
+ * @param output the output
+ * @param height the input img height
+ * @param width the input img width
+ * @param in_channel the input_channel of the img
+ * @param out_channel the output_channel of the output
+ * @param kernel_height the depthwise kernel_height
+ * @param kernel_width the depthwise kernel width
+ */
+void init_conv_conv_fusion_data(float* input, float* dw_weight, float* pw_weight, float* output,
+  const int height, const int width, const int in_channel, const int  out_channel, 
+  const int kernel_height, const int kernel_width){
+    srand (time(NULL));
+  for (int h = 0; h < height; ++h) {
+      for (int w = 0; w < width; ++w) {
+        for (int ic = 0; ic < in_channel; ++ic) {
+          // input[h*width*in_channel + w*in_channel + ic] = 1;
+        //   if(ic%2==0)
+        // input[h*width*in_channel + w*in_channel + ic] = 1;
+        // else
+        // input[h*width*in_channel + w*in_channel + ic] = 2;
+        input[h*width*in_channel + w*in_channel + ic] = rand() % 10;
+      }
+    }
+  }
 
+  for (int ic = 0; ic < in_channel; ++ic) {
+    for (int h = 0; h < kernel_height; ++h) {
+      for (int w = 0; w < kernel_width; ++w) {
+        dw_weight[ic * kernel_height * kernel_width + h * kernel_width + w] = rand() % 10;;
+      }
+    }
+  }
+
+  for (int oc = 0; oc < out_channel; ++oc) {
+    for (int ic = 0; ic < in_channel; ++ic) {
+      pw_weight[oc * in_channel + ic] = 1;
+    }
+  }
+
+  for (int oc = 0; oc < out_channel; ++oc) {
+    for (int h = 0; h < height; ++h) {
+      for (int w = 0; w < width; ++w) {
+        output[oc * height * width + h * width + w] = 0;
+      }
+    }
+  }  
+}
+
+
+void pointwise_conv(float* input, float* pw_weight, float* output,
+  const int height, const int width, const int in_channel, const int  out_channel){
+  for (int h = 0; h < height; ++h) {
+    for (int w = 0; w < width; ++w) {
+      for(int oc = 0; oc<out_channel; ++oc){
+        float sum = 0;
+        for (int ic = 0; ic < in_channel; ++ic) {
+          sum += input[h*width*in_channel + w*in_channel + ic] * pw_weight[oc*in_channel + ic];
+        }
+        output[h*width*out_channel+ w*out_channel + oc] = sum;
+      }
+    }
+  }
+}
+  
 
 #endif
