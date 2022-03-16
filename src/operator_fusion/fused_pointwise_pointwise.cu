@@ -21,9 +21,13 @@
 #define WARP_SIZE 32
 
 // MMA matrix tile dimensions.
-#define WMMA_M 32
-#define WMMA_N 8
-#define WMMA_K 16
+#define WMMA_M1 32
+#define WMMA_N1 8
+#define WMMA_K1 16
+
+#define WMMA_M2 32
+#define WMMA_N1 
+#define WMMA_K1 8
 
 using namespace nvcuda;
 
@@ -37,27 +41,27 @@ int host_updiv(int a, int b){
 
 
 template<int height, int width, int in_channel, int out_channel, int num_warp>
-__global__ void simple_depthwise_conv(half* input, half* weight, float* output){
+__global__ void fused_pointwise_pointwise_conv(half* input, half* weight_1, half* weight_2, float* output){
   // Tile using a 2D grid
   int warpM = (blockIdx.x * blockDim.x + threadIdx.x) / warpSize;
   // int warpN = (blockIdx.y * blockDim.y + threadIdx.y);
 
   // Declare the fragments
-  wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
-  wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
-  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> acc_frag;
+  wmma::fragment<wmma::matrix_a, WMMA_M1, WMMA_N1, WMMA_K1, half, wmma::row_major> a1_frag;
+  wmma::fragment<wmma::matrix_b, WMMA_M1, WMMA_N1, WMMA_K1, half, wmma::col_major> b1_frag;
+  wmma::fragment<wmma::accumulator, WMMA_M1, WMMA_N1, WMMA_K1, float> acc1_frag;
   
   // TODO(Chunwei Xia) for now we assume weight is small to fit into shared memory
   // Load weight to shared memory and pad with 0
   // Note that weight is in column major
   const int pad_out_channel = 8;
-  __shared__ half shared_weight[in_channel * pad_out_channel];
-  __shared__ float shared_output[num_warp * WMMA_M * pad_out_channel];
+  __shared__ half shared_weight_1[in_channel * pad_out_channel];
+  __shared__ float shared_output_1[num_warp * WMMA_M1 * pad_out_channel];
   #pragma unroll
   for(int i=0; i<updiv(out_channel * in_channel, blockDim.x); ++i){
     int idx = i*blockDim.x + threadIdx.x;
     if(idx >= in_channel * out_channel){continue;}
-    shared_weight[idx] = weight[idx];
+    shared_weight_1[idx] = weight_1[idx];
   }
 
   // Pad weight
@@ -65,43 +69,48 @@ __global__ void simple_depthwise_conv(half* input, half* weight, float* output){
   for(int i=0; i<updiv((pad_out_channel-out_channel) * in_channel, blockDim.x); ++i){
     int idx = i*blockDim.x + threadIdx.x;
     if(idx >= (pad_out_channel-out_channel) * in_channel){continue;}
-    shared_weight[idx + out_channel * in_channel] = 0;
+    shared_weight_1[idx + out_channel * in_channel] = 0;
   }
   __syncthreads();
-  assert(height*width % WMMA_M == 0);
+  assert(height*width % WMMA_M1 == 0);
   wmma::fill_fragment(acc_frag, 0.0f);
 
   // Loop over k
   #pragma unroll
   for(int i=0; i<in_channel; i+=WMMA_K){
-    int a_col = i, a_row = warpM * WMMA_M;
+    int a_col = i, a_row = warpM * WMMA_M1;
     int b_col = i, b_row = 0; // As all the weights are cached in the shared memory
 
     if(a_row < height*width && a_col < in_channel && b_row < pad_out_channel && b_col < in_channel){
       wmma::load_matrix_sync(a_frag, input+a_row*in_channel+a_col, in_channel);
-      wmma::load_matrix_sync(b_frag, shared_weight+b_row*in_channel+b_col, in_channel);
+      wmma::load_matrix_sync(b_frag, shared_weight_1+b_row*in_channel+b_col, in_channel);
       // Perform the matrix multiplication
       wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
     }
   }
 
   // Store back to shared memory
-  wmma::store_matrix_sync(shared_output + (threadIdx.x / warpSize) * WMMA_M * pad_out_channel, 
+  wmma::store_matrix_sync(shared_output + (threadIdx.x / warpSize) * WMMA_M1 * pad_out_channel, 
     acc_frag, pad_out_channel, wmma::mem_row_major);
-  // we need to deal with pad as c_frag are padded,
   __syncthreads();
+
+  // Do sigmoid and mul here
+
+  // Now start the next pointwise conv
+  // 1. Load transposed weight to shared memory,
+  __shared__ half shared_weight_2[in_channel*pad_out_channel];
   #pragma unroll
-  for(int i=0; i<updiv(num_warp * WMMA_M * pad_out_channel, blockDim.x); ++i){
+  for(int i=0; i<updiv(in_channel*out_channel, blockDim.x); ++i){
     int idx = i*blockDim.x + threadIdx.x;
-    // int idx = threadIdx.x;
-    if(idx >= num_warp * WMMA_M * pad_out_channel) {continue;}
+    if(idx>=in_channel*out_channel){continue;}
     if(idx % pad_out_channel < out_channel){
-      output[blockIdx.x * num_warp * WMMA_M * out_channel + idx / pad_out_channel * out_channel + (idx % pad_out_channel)] = shared_output[idx];
-      if(shared_output[idx] < 1){
-        printf("%f\n", shared_output[idx]);
-      }
+      shared_weight_2[idx] = weight_2[idx/pad_out_channel*out_channel + (idx%pad_out_channel)];
+    }else{
+      shared_weight_2[idx] = 0;
     }
   }
+  // 2. Declare the fragments
+
 }
 
 // Convert elements of array from float to half on device
@@ -150,7 +159,7 @@ int main() {
   
   // Copy data and convert data type
   init_conv_conv_fusion_data(input, dw_weight, pw_weight, output, 
-    height, width, 3, 3, in_channel, in_channel, 1, 1, in_channel, out_channel);
+    height, width, 3, 3, in_channel, 1, 1, 1, in_channel, out_channel);
   cudaMemcpy(d_input, input, sizeof(float)*input_size, cudaMemcpyHostToDevice);
   cudaMemcpy(d_dw_weight, dw_weight, sizeof(float)*dw_weight_size, cudaMemcpyHostToDevice);
   cudaMemcpy(d_pw_weight, pw_weight, sizeof(float)*pw_weight_size, cudaMemcpyHostToDevice);

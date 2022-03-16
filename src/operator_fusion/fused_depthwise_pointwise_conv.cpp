@@ -82,7 +82,8 @@ int main() {
   float *pw_weight = new float[out_channel * in_channel];
   float *output = new float[in_channel * height * width];
 
-  init_conv_conv_fusion_data(input, dw_weight, pw_weight, output);
+  init_conv_conv_fusion_data(input, dw_weight, pw_weight, output, 
+    height, width, 3, 3, in_channel, in_channel, 1, 1, in_channel, out_channel);
   // fused_avgpool_pointwise_conv(input, pw_weight, output);
   fused_depthwise_pointwise_conv(input,dw_weight, pw_weight, output);
 

@@ -191,7 +191,7 @@ int main() {
   }
   
   init_conv_conv_fusion_data(input, dw_weight, pw_weight, output, 
-    height, width, in_channel, out_channel, kernel_height, kernel_width);
+    height, width, 3, 3, in_channel, 1, 1, 1, in_channel, out_channel);
   cudaMemcpy(d_input, input, sizeof(float)*in_channel * height * width, cudaMemcpyHostToDevice);
   cudaMemcpy(d_dw_weight, dw_weight, sizeof(float)*in_channel * kernel_height * kernel_width, cudaMemcpyHostToDevice);
   cudaMemcpy(d_pw_weight, pw_weight, sizeof(float)*out_channel*in_channel, cudaMemcpyHostToDevice);

@@ -22,6 +22,10 @@ add_executable(normalize src/learn_cuda/normalize.cu)
 add_executable(sobel src/learn_cuda/sobel.cu)
 add_executable(cudnn_conv src/learn_cuda/cudnn_conv.cu)
 add_executable(pointwise_conv src/learn_cuda/pointwise_conv.cu)
+file(GLOB FUSE_SRC_FILES src/operator_fusion/efficientnet/*.cu)
+
+# add_executable(fused_pointwise_pointwise_conv src/operator_fusion/efficientnet/fused_pointwise_pointwise_main.cu src/operator_fusion/efficientnet/pointwise_112_112_144_6.cu)
+add_executable(fused_pointwise_pointwise_conv ${FUSE_SRC_FILES})
 # add_executable(tvmgen src/tvm_codegen/fused_matmul_main.cu src/tvm_codegen/block_fuse_d2l_matmul_kernel0 /tmp/mmult_kernel0.cu)
 
 add_executable(lstm_main src/lstm/lstm_main.cu)

@@ -43,44 +43,51 @@ void print_and_check(std::vector<float>& output, float expected){
  * @param kernel_height the depthwise kernel_height
  * @param kernel_width the depthwise kernel width
  */
-void init_conv_conv_fusion_data(float* input, float* dw_weight, float* pw_weight, float* output,
-  const int height, const int width, const int in_channel, const int  out_channel, 
-  const int kernel_height, const int kernel_width){
+void init_conv_conv_fusion_data(float* input, float* weight1, float* weight2, float* output,
+  const int height, const int width,
+  const int kernel1_height, const int kernel1_width, const int kernel1_in_channel, const int kernel1_out_channel, 
+  const int kernel2_height, const int kernel2_width, const int kernel2_in_channel, const int kernel2_out_channel){
     srand (time(NULL));
   for (int h = 0; h < height; ++h) {
       for (int w = 0; w < width; ++w) {
-        for (int ic = 0; ic < in_channel; ++ic) {
-          // input[h*width*in_channel + w*in_channel + ic] = 1;
-        //   if(ic%2==0)
-        // input[h*width*in_channel + w*in_channel + ic] = 1;
-        // else
-        // input[h*width*in_channel + w*in_channel + ic] = 2;
-        input[h*width*in_channel + w*in_channel + ic] = rand() % 10;
+        for (int ic = 0; ic < kernel1_in_channel; ++ic) {
+        input[h*width*kernel1_in_channel + w*kernel1_in_channel + ic] = 1;
+        // if(ic%2==0){input[h*width*in_channel + w*in_channel + ic] = 1;}
+        // else{input[h*width*in_channel + w*in_channel + ic] = 2;}
+        // input[h*width*kernel1_in_channel + w*kernel1_in_channel + ic] = rand() % 10;
+      }
+    }
+  }
+  
+  for (int h = 0; h < kernel1_height; ++h) {
+    for (int w = 0; w < kernel1_width; ++w) {
+      for (int ic = 0; ic < kernel1_in_channel; ++ic) {
+        for(int oc = 0; oc < kernel1_out_channel; ++oc) {
+          weight1[h * kernel1_width * kernel1_in_channel * kernel1_out_channel 
+            + w * kernel1_in_channel * kernel1_out_channel + ic * kernel1_out_channel + oc] = 1;
+        }
       }
     }
   }
 
-  for (int ic = 0; ic < in_channel; ++ic) {
-    for (int h = 0; h < kernel_height; ++h) {
-      for (int w = 0; w < kernel_width; ++w) {
-        dw_weight[ic * kernel_height * kernel_width + h * kernel_width + w] = rand() % 10;;
+  for (int h = 0; h < kernel2_height; ++h) {
+    for (int w = 0; w < kernel2_width; ++w) {
+      for (int ic = 0; ic < kernel2_in_channel; ++ic) {
+        for(int oc = 0; oc < kernel2_out_channel; ++oc) {
+          weight2[h * kernel2_width * kernel2_in_channel * kernel2_out_channel 
+            + w * kernel2_in_channel * kernel2_out_channel + ic * kernel2_out_channel + oc] = 1;
+        }
       }
     }
   }
 
-  for (int oc = 0; oc < out_channel; ++oc) {
-    for (int ic = 0; ic < in_channel; ++ic) {
-      pw_weight[oc * in_channel + ic] = 1;
-    }
-  }
-
-  for (int oc = 0; oc < out_channel; ++oc) {
-    for (int h = 0; h < height; ++h) {
+  for (int h = 0; h < height; ++h) {
       for (int w = 0; w < width; ++w) {
-        output[oc * height * width + h * width + w] = 0;
+        for (int oc = 0; oc < kernel2_out_channel; ++oc) {
+        output[h*width*kernel2_out_channel + w*kernel2_out_channel + oc] = 0;
       }
     }
-  }  
+  }
 }
 
 
