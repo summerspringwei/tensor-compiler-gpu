@@ -66,6 +66,12 @@ void simmulate_test_pad(float* input, float* pointwise_PaddedInput_shared, Block
   }
 }
 
+void add(float* a, float* b, float* c){
+  for(int i=0;i<10; ++i){
+    c[i] = a[i] + b[i];
+  }
+}
+
 void init_input(float* input){
   for(int i=0; i<img_height; ++i){
     for(int j=0; j<img_width; ++j){

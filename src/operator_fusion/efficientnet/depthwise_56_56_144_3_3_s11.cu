@@ -16,7 +16,7 @@
 
 // 56*56*144 == 504*128*7, 128*7=56*16
 // Input: NHWC, weight:[filter_height, filter_width, in_channel, channel_multiplier]
-extern "C" __global__ void __launch_bounds__(128) default_function_kernel0(float* __restrict__ input, float* __restrict__ weight, float* __restrict__ DepthwiseConv2d) {
+extern "C" __global__ void __launch_bounds__(128) depthwise_56_56_144_s11(float* __restrict__ input, float* __restrict__ weight, float* __restrict__ DepthwiseConv2d) {
   float DepthwiseConv2d_local[7];// Each thread compute 7 output elements, each block compute 4*14*16 output elements
   __shared__ float PaddedInput_shared[1536];// 1536==6*16*16, each block has 128 threads so each thread load 1536/128==12 input element
   __shared__ float weight_shared[144]; // 144=3*3*16, first check weight, 
@@ -129,8 +129,8 @@ extern "C" __global__ void __launch_bounds__(128) fused_pointwise_56_56_24_144_d
   float* __restrict__ input,  float* __restrict__ pointwise_weight, float* __restrict__ depthwise_weight, float* __restrict__ DepthwiseConv2d) {
   // 128 threads compute 6*16*16 elements to feed to PaddedInput_shared
   // Each thread compute 6*16*16/128=12 elements
-  float DepthwiseConv2d_local[7];// Each thread compute 7 output elements, each block compute 4*14*16 output elements
-  __shared__ float PaddedInput_shared[1536];// 1536==6*16*16, each block has 128 threads so each thread load 1536/128==12 input element
+  float DepthwiseConv2d_local[7]; // Each thread compute 7 output elements, each block compute 4*14*16 output elements
+  __shared__ float PaddedInput_shared[1536]; // 1536==6*16*16, each block has 128 threads so each thread load 1536/128==12 input element
   __shared__ float weight_shared[144]; // 144=3*3*16, first check weight, 
   // Load pointwise weight to shared memory
   __shared__ float pointwise_weight_shared[24*16];
@@ -150,46 +150,73 @@ extern "C" __global__ void __launch_bounds__(128) fused_pointwise_56_56_24_144_d
   const int bz = (blockIdx.x % block_tile_size_z);
   const int tx = threadIdx.x / thread_tile_size_y; // range [0, 6)
   const int ty = threadIdx.x % thread_tile_size_y; // range [0, 16)
-  for(int i=0; i<img_in_channels; ++i){
-    if(threadIdx.x >= thread_tile_size_x*thread_tile_size_y){
-      continue;
-    }
+  if(threadIdx.x < thread_tile_size_x*thread_tile_size_y){
     if(bx == 0 && by == 0){/* top left corner OK */
+      #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = (tx == 0 || ty == 0) ? 
         0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }else if(bx == 0 && by == block_tile_size_y-1){/* top right corner OK */
+      #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = (tx==0 || ty==thread_tile_size_y-1) ?
-        0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y - 1 + ty) * img_in_channels + i];
+        0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }else if(bx==block_tile_size_x-1 && by==0) {/* bottom right corner OK */ 
+      #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = (tx==thread_tile_size_x-1 || ty==0) ?
         0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }else if(bx==block_tile_size_x-1 && by==block_tile_size_y-1){/* bottom right corner OK */ 
+      #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = (tx==thread_tile_size_x-1 || ty == thread_tile_size_y-1) ?
         0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }else if(bx==0 && by>0 && by<block_tile_size_y-1){ /* top middle OK*/
+      #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = (tx==0) ?
         0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }else if(bx==block_tile_size_x-1 && by>0 && by<block_tile_size_y-1){ /* bottom middle OK*/
+    #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = (tx==thread_tile_size_x-1) ?
         0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }else if(bx>0 && bx<block_tile_size_x-1 && by==0){ /* left middle */
+    #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = (ty==0) ?
         0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }else if(bx>0 && bx<block_tile_size_x - 1 && by==block_tile_size_y-1){
+      #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = (ty==thread_tile_size_y-1) ?
         0: input[(bx * num_block_x + tx - 1) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }else{
+      #pragma unroll
+      for(int i=0; i<img_in_channels; ++i){
       pointwise_PaddedInput_shared[i*thread_tile_size_x*thread_tile_size_y + threadIdx.x] = 
         input[(bx * block_tile_size_x + tx - 1 ) * img_height * img_in_channels + (by * num_block_y + ty - 1) * img_in_channels + i];
+      }
     }
   }
+  
   __syncthreads();
   // Start matmul, each thread computes 12 elements
   float matmul_local[12];
+  #pragma unroll
   for(int i=0; i<12; ++ i){
     matmul_local[i] = 0;
   }
   // output row: i*8+threadIdx.x/16, colmn = threadIdx.x % 16
+  // (96*16) = (96*24 * 24*16)
   #pragma unroll
   for(int rk = 0; rk<24; ++ rk){
     #pragma unroll
@@ -202,7 +229,7 @@ extern "C" __global__ void __launch_bounds__(128) fused_pointwise_56_56_24_144_d
   for(int i=0; i<12; ++ i){
     PaddedInput_shared[(i*8+threadIdx.x/16)*16 + (threadIdx.x % 16)] = matmul_local[i];
   }
-  __syncthreads();
+  // __syncthreads();
   
   // output shape: 56*56*144, output_shared: 4*14*16, padded_shared: 6*16*16, block tile shape: 14*4*9
   // each thread compute 4,2*(7),16
@@ -214,18 +241,18 @@ extern "C" __global__ void __launch_bounds__(128) fused_pointwise_56_56_24_144_d
   DepthwiseConv2d_local[(5)] = 0.000000e+00f;
   DepthwiseConv2d_local[(6)] = 0.000000e+00f;
                                               // 
-  PaddedInput_shared[(((int)threadIdx.x))] = (((36 <= ((int)blockIdx.x)) && (1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4)))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 128))] = (((36 <= ((int)blockIdx.x)) && (((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4)) < 49)) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 7056))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 256))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 144))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 384))] = ((((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 384) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 512))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) + 7920))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 640))] = ((((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 640) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 768))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) + 15984))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 896))] = ((((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 896) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 1024))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) + 24048))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 1152))] = ((((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 1152) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 1280))] = (((((int)blockIdx.x) < 468) && (1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4)))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) + 32112))] : 0.000000e+00f);
-  PaddedInput_shared[((((int)threadIdx.x) + 1408))] = ((((((((int)blockIdx.x) / 36) * 4) + ((((int)threadIdx.x) + 1408) >> 8)) < 57) && (((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57)) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 1408) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
+  // PaddedInput_shared[(((int)threadIdx.x))] = (((36 <= ((int)blockIdx.x)) && (1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4)))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 128))] = (((36 <= ((int)blockIdx.x)) && (((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4)) < 49)) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 7056))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 256))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 144))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 384))] = ((((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 384) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 512))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) + 7920))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 640))] = ((((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 640) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 768))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) + 15984))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 896))] = ((((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 896) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 1024))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) + 24048))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 1152))] = ((((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 1152) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 1280))] = (((((int)blockIdx.x) < 468) && (1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4)))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) + 32112))] : 0.000000e+00f);
+  // PaddedInput_shared[((((int)threadIdx.x) + 1408))] = ((((((((int)blockIdx.x) / 36) * 4) + ((((int)threadIdx.x) + 1408) >> 8)) < 57) && (((((((int)blockIdx.x) % 36) / 9) * 14) + ((((int)threadIdx.x) >> 4) + 8)) < 57)) ? input[(((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)threadIdx.x) + 1408) >> 8) * 8064)) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) >> 4) + 8) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
   weight_shared[(((int)threadIdx.x))] = depthwise_weight[(((((((int)threadIdx.x) >> 4) * 144) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)))];
   if (((int)threadIdx.x) < 16) {
     weight_shared[((((int)threadIdx.x) + 128))] = depthwise_weight[(((((((int)blockIdx.x) % 9) * 16) + ((int)threadIdx.x)) + 1152))];

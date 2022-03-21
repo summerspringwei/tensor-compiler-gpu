@@ -297,7 +297,7 @@ endif
 # Target rules
 all: build
 
-build: fused_pointwise_pointwise
+build: fused_pointwise_pointwise_main fused_pointwise_depthwise_main
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -313,15 +313,25 @@ pointwise_112_112_6_144.o:pointwise_112_112_6_144.cu
 pointwise_112_112_144_6.o:pointwise_112_112_144_6.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-fused_pointwise_pointwise: fused_pointwise_pointwise_main.o pointwise_112_112_6_144.o pointwise_112_112_144_6.o
+fused_pointwise_pointwise_main: fused_pointwise_pointwise_main.o pointwise_112_112_6_144.o pointwise_112_112_144_6.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 	# $(EXEC) cp $@ ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 
+fused_pointwise_depthwise_main.o:fused_pointwise_depthwise_main.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+depthwise_56_56_144_3_3_s11.o:depthwise_56_56_144_3_3_s11.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+
+fused_pointwise_depthwise_main: fused_pointwise_depthwise_main.o depthwise_56_56_144_3_3_s11.o
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+
 run: build
-	$(EXEC) ./fused_pointwise_pointwise
+	$(EXEC) ./fused_pointwise_pointwise_main
+	$(EXEC) ./fused_pointwise_depthwise_main
 
 clean:
-	rm -f fused_pointwise_pointwise fused_pointwise_pointwise_main.o pointwise_112_112_6_144.o pointwise_112_112_144_6.o
+	rm -f fused_pointwise_pointwise_main fused_pointwise_pointwise_main.o pointwise_112_112_6_144.o pointwise_112_112_144_6.o
+	rm -f fused_pointwise_depthwise_main fused_pointwise_depthwise_main.o depthwise_56_56_144_3_3_s11.o
 	# rm -rf ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/cudaTensorCoreGemm
 
 clobber: clean
