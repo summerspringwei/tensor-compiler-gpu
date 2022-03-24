@@ -268,7 +268,7 @@ LIBRARIES :=
 ################################################################################
 
 # Gencode arguments
-SMS ?= 70 75
+SMS ?= 80
 
 ifeq ($(SMS),)
 $(info >>> WARNING - no SM architectures have been specified - waiving sample <<<)
@@ -317,12 +317,18 @@ fused_pointwise_pointwise_main: fused_pointwise_pointwise_main.o pointwise_112_1
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 	# $(EXEC) cp $@ ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 
+
+
 fused_pointwise_depthwise_main.o:fused_pointwise_depthwise_main.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 depthwise_56_56_144_3_3_s11.o:depthwise_56_56_144_3_3_s11.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+pointwise_56_56_24_144.o:pointwise_56_56_24_144.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+fused_pointwise_depthwise.o:fused_pointwise_depthwise.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-fused_pointwise_depthwise_main: fused_pointwise_depthwise_main.o depthwise_56_56_144_3_3_s11.o
+fused_pointwise_depthwise_main: fused_pointwise_depthwise_main.o depthwise_56_56_144_3_3_s11.o fused_pointwise_depthwise.o pointwise_56_56_24_144.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
@@ -331,7 +337,7 @@ run: build
 
 clean:
 	rm -f fused_pointwise_pointwise_main fused_pointwise_pointwise_main.o pointwise_112_112_6_144.o pointwise_112_112_144_6.o
-	rm -f fused_pointwise_depthwise_main fused_pointwise_depthwise_main.o depthwise_56_56_144_3_3_s11.o
-	# rm -rf ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/cudaTensorCoreGemm
+	rm -f fused_pointwise_depthwise_main.o depthwise_56_56_144_3_3_s11.o fused_pointwise_depthwise.o pointwise_56_56_24_144.o
+
 
 clobber: clean

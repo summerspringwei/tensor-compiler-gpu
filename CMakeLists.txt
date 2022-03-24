@@ -1,5 +1,5 @@
 
-set(CMAKE_CUDA_COMPILER "/usr/local/cuda-11.0/bin/nvcc")
+set(CMAKE_CUDA_COMPILER "/usr/local/cuda-11.6/bin/nvcc")
 project(tensor-compiler-gpu LANGUAGES C CXX CUDA)
 cmake_minimum_required(VERSION 3.5)
 include(CheckLanguage)
@@ -8,8 +8,8 @@ check_language(CUDA)
 # set(CMAKE_CXX_COMPILER "/usr/local/cuda-10.0/bin//nvcc")
 set(CMAKE_CUDA_ARCHITECTURES "70;75;80")
 SET(CUDA_SEPARABLE_COMPILATION ON)
-include_directories("/usr/local/cuda-11.0/include" "/usr/local/cudnn-11.2/include" "./inc")
-link_directories("/usr/local/cuda-11.0/lib64" "/usr/local/cudnn-11.2/lib64")
+include_directories("/usr/local/cuda-11.6/include" "/usr/local/cudnn-11.2/include" "./inc")
+link_directories("/usr/local/cuda-11.6/lib64" "/usr/local/cudnn-11.2/lib64")
 
 
 include_directories("third_party/libnpy/include")
@@ -25,7 +25,7 @@ add_executable(pointwise_conv src/learn_cuda/pointwise_conv.cu)
 # file(GLOB FUSE_SRC_FILES src/operator_fusion/efficientnet/*.cu)
 set(EFFICIENT_NET_PATH "src/operator_fusion/efficientnet/")
 add_executable(fused_pointwise_pointwise_main ${EFFICIENT_NET_PATH}/fused_pointwise_pointwise_main.cu ${EFFICIENT_NET_PATH}/pointwise_112_112_6_144.cu ${EFFICIENT_NET_PATH}/pointwise_112_112_144_6.cu)
-add_executable(fused_pointwise_depthwise_main ${EFFICIENT_NET_PATH}/fused_pointwise_depthwise_main.cu ${EFFICIENT_NET_PATH}/depthwise_56_56_144_3_3_s11.cu ${EFFICIENT_NET_PATH}/pointwise_56_56_24_144.cu)
+add_executable(fused_pointwise_depthwise_main ${EFFICIENT_NET_PATH}/fused_pointwise_depthwise_main.cu ${EFFICIENT_NET_PATH}/depthwise_56_56_144_3_3_s11.cu ${EFFICIENT_NET_PATH}/pointwise_56_56_24_144.cu ${EFFICIENT_NET_PATH}/fused_pointwise_depthwise.cu)
 
 # add_executable(fused_pointwise_pointwise_conv src/operator_fusion/efficientnet/fused_pointwise_pointwise_main.cu src/operator_fusion/efficientnet/pointwise_112_112_144_6.cu)
 # add_executable(fused_pointwise_pointwise_conv ${FUSE_SRC_FILES})

@@ -240,7 +240,7 @@ extern "C" __global__ void __launch_bounds__(128) fused_pointwise_56_56_24_144_d
   DepthwiseConv2d_local[(4)] = 0.000000e+00f;
   DepthwiseConv2d_local[(5)] = 0.000000e+00f;
   DepthwiseConv2d_local[(6)] = 0.000000e+00f;
-                                              // 
+  // 
   // PaddedInput_shared[(((int)threadIdx.x))] = (((36 <= ((int)blockIdx.x)) && (1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4)))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 8208))] : 0.000000e+00f);
   // PaddedInput_shared[((((int)threadIdx.x) + 128))] = (((36 <= ((int)blockIdx.x)) && (((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4)) < 49)) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 7056))] : 0.000000e+00f);
   // PaddedInput_shared[((((int)threadIdx.x) + 256))] = ((1 <= ((((((int)blockIdx.x) % 36) / 9) * 14) + (((int)threadIdx.x) >> 4))) ? input[((((((((((int)blockIdx.x) / 36) * 32256) + (((((int)blockIdx.x) % 36) / 9) * 2016)) + ((((int)threadIdx.x) >> 4) * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)) - 144))] : 0.000000e+00f);

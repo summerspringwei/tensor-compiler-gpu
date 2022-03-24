@@ -51,7 +51,7 @@ void init_conv_conv_fusion_data(float* input, float* weight1, float* weight2, fl
   for (int h = 0; h < height; ++h) {
       for (int w = 0; w < width; ++w) {
         for (int ic = 0; ic < kernel1_in_channel; ++ic) {
-        input[h*width*kernel1_in_channel + w*kernel1_in_channel + ic] = 1;
+        input[h*width*kernel1_in_channel + w*kernel1_in_channel + ic] = rand() % 10;;
         // if(ic%2==0){input[h*width*in_channel + w*in_channel + ic] = 1;}
         // else{input[h*width*in_channel + w*in_channel + ic] = 2;}
         // input[h*width*kernel1_in_channel + w*kernel1_in_channel + ic] = rand() % 10;
