@@ -86,7 +86,8 @@ int main() {
   depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_intermedia_output, d_dw_weight, d_ori_output);
   // fused_pointwise_depthwise<<<dim3(112,1,1), dim3(256,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
   // fused_pointwise_56_56_24_144_depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
-  fused_pointwise_depthwise<<<dim3(196,1,1), dim3(256,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
+  fused_pointwise_depthwise<<<dim3(392,1,1), dim3(256,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
+  cudaDeviceSynchronize();
   err = cudaMemcpy(ori_output, d_ori_output, sizeof(float)*output_size, cudaMemcpyDeviceToHost);
   err = cudaMemcpy(output, d_output, sizeof(float)*output_size, cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
@@ -97,57 +98,57 @@ int main() {
   }
 
   // Benchmark
-  // const int loop = 10000;
-  // float ms = 0, sum = 0, min = 10000, max=0;
-  // // 1. For original pointwise conv
-  // for(int i=0; i<loop; ++i){
-  //   checkCuda( cudaEventRecord(startEvent,0) );
-  //   pointwise_56_56_24_144<<<dim3(196,1,1), dim3(288,1,1)>>>(d_input, d_pw_weight, d_intermedia_output);
-  //   depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_intermedia_output, d_dw_weight, d_ori_output);
-  //   checkCuda( cudaEventRecord(stopEvent,0) );
-  //   checkCuda( cudaEventSynchronize(stopEvent) );
-  //   checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-  //   sum += ms;
-  //   ms > max? max=ms: 0;
-  //   ms < min? min=ms: 0;
-  // }printf("Before fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
-  // sum = 0, min = 10000, max=0;;
-  // for(int i=0; i<loop; ++i){
-  //   checkCuda( cudaEventRecord(startEvent,0) );
-  //   pointwise_56_56_24_144<<<dim3(196,1,1), dim3(288,1,1)>>>(d_input, d_pw_weight, d_intermedia_output);
-  //   depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_intermedia_output, d_dw_weight, d_ori_output);
-  //   checkCuda( cudaEventRecord(stopEvent,0) );
-  //   checkCuda( cudaEventSynchronize(stopEvent) );
-  //   checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-  //   sum += ms;
-  //   ms > max? max=ms: 0;
-  //   ms < min? min=ms: 0;
-  // }printf("Before fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
+  const int loop = 10000;
+  float ms = 0, sum = 0, min = 10000, max=0;
+  // 1. For original pointwise conv
+  for(int i=0; i<loop; ++i){
+    checkCuda( cudaEventRecord(startEvent,0) );
+    pointwise_56_56_24_144<<<dim3(196,1,1), dim3(288,1,1)>>>(d_input, d_pw_weight, d_intermedia_output);
+    depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_intermedia_output, d_dw_weight, d_ori_output);
+    checkCuda( cudaEventRecord(stopEvent,0) );
+    checkCuda( cudaEventSynchronize(stopEvent) );
+    checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
+    sum += ms;
+    ms > max? max=ms: 0;
+    ms < min? min=ms: 0;
+  }printf("Before fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
+  sum = 0, min = 10000, max=0;;
+  for(int i=0; i<loop; ++i){
+    checkCuda( cudaEventRecord(startEvent,0) );
+    pointwise_56_56_24_144<<<dim3(196,1,1), dim3(288,1,1)>>>(d_input, d_pw_weight, d_intermedia_output);
+    depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_intermedia_output, d_dw_weight, d_ori_output);
+    checkCuda( cudaEventRecord(stopEvent,0) );
+    checkCuda( cudaEventSynchronize(stopEvent) );
+    checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
+    sum += ms;
+    ms > max? max=ms: 0;
+    ms < min? min=ms: 0;
+  }printf("Before fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
   
-  // ms = 0, sum = 0, min = 10000, max=0;
-  // for(int i=0; i<loop; ++i){
-  //   checkCuda( cudaEventRecord(startEvent,0) );
-  //   // fused_pointwise_56_56_24_144_depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
-  //   fused_pointwise_depthwise<<<dim3(112,1,1), dim3(256,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
-  //   checkCuda( cudaEventRecord(stopEvent,0) );
-  //   checkCuda( cudaEventSynchronize(stopEvent) );
-  //   checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-  //   sum += ms;
-  //   ms > max? max=ms: 0;
-  //   ms < min? min=ms: 0;
-  // }printf("After fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
-  // sum = 0;
-  // for(int i=0; i<loop; ++i){
-  //   checkCuda( cudaEventRecord(startEvent,0) );
-  //   // fused_pointwise_56_56_24_144_depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
-  //   fused_pointwise_depthwise<<<dim3(112,1,1), dim3(256,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
-  //   checkCuda( cudaEventRecord(stopEvent,0) );
-  //   checkCuda( cudaEventSynchronize(stopEvent) );
-  //   checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-  //   sum += ms;  
-  //   ms > max? max=ms: 0;
-  //   ms < min? min=ms: 0;
-  // }printf("After fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
+  ms = 0, sum = 0, min = 10000, max=0;
+  for(int i=0; i<loop; ++i){
+    checkCuda( cudaEventRecord(startEvent,0) );
+    // fused_pointwise_56_56_24_144_depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
+    fused_pointwise_depthwise<<<dim3(112,1,1), dim3(256,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
+    checkCuda( cudaEventRecord(stopEvent,0) );
+    checkCuda( cudaEventSynchronize(stopEvent) );
+    checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
+    sum += ms;
+    ms > max? max=ms: 0;
+    ms < min? min=ms: 0;
+  }printf("After fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
+  sum = 0;
+  for(int i=0; i<loop; ++i){
+    checkCuda( cudaEventRecord(startEvent,0) );
+    // fused_pointwise_56_56_24_144_depthwise_56_56_144_s11<<<dim3(504,1,1), dim3(128,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
+    fused_pointwise_depthwise<<<dim3(112,1,1), dim3(256,1,1)>>>(d_input, d_pw_weight, d_dw_weight, d_output);
+    checkCuda( cudaEventRecord(stopEvent,0) );
+    checkCuda( cudaEventSynchronize(stopEvent) );
+    checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
+    sum += ms;  
+    ms > max? max=ms: 0;
+    ms < min? min=ms: 0;
+  }printf("After fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
   
   
   // Print result
@@ -162,9 +163,9 @@ int main() {
           printf("<%d, %d, %d> %.2f, %.2f\n",h, w, oc, output[idx], ori_output[idx]);
           equal = false;
         }
-      }// printf("\n");
-    } // printf("\n");
-  }// printf("\n");
+      }printf("\n");
+    } printf("\n");
+  }printf("\n");
   if(equal){
     printf("Check passed\n");
   }else{
