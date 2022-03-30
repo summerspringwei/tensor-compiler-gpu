@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <time.h> 
 
+#include "fused_micro_operators.h"
+
 #include "../../utils.h"
 #include "../../cuda_utils.h"
 
@@ -30,14 +32,27 @@ void init_inputs_and_weights(float* input, float* weight1, float* bias1, float* 
   init_values(bias2, {out_channels_2}, 1);
 }
 
-extern "C" __global__ void __launch_bounds__(256) fused_micro_operators(
-  float* input, float* weight1, float* bias1, float* weight2, float* bias2, float* output);
+
+// #define FUSED_FUNC_CALL fused_micro_operators<<<dim3(1, 1, 1), dim3(fused_block_size, 1, 1)>>>(d_input, d_weight1, d_bias1, d_weight2, d_bias2, d_output);
+// #define FUSED_FUNC_CALL fused_micro_operators_v2<<<dim3(1, 1, 1), dim3(fused_block_size, 1, 1)>>>(d_input, d_weight1, d_bias1, d_weight2, d_bias2, d_output);
+#define FUSED_FUNC_CALL fused_micro_operators_v3 \
+  <fused_num_blocks, fused_block_size, height, width, in_channels, out_channels_1, out_channels_2> \
+  <<<dim3(fused_num_blocks, 1, 1), dim3(fused_block_size, 1, 1)>>> \
+  (d_input, d_weight1, d_bias1, d_weight2, d_bias2, d_output);
 
 int main() {
   // Declare size
   const int batch = 1;
-  const int in_channels = 480, height = 14, width=14;
-  const int out_channels_1 = 20, out_channels_2 = 480;
+  // const int fused_num_blocks = 1, fused_block_size = 512, in_channels = 32, height = 112, width=112, out_channels_1 = 8, out_channels_2 = 32;
+  // const int fused_num_blocks = 1, fused_block_size = 512, in_channels = 96, height = 112, width=112, out_channels_1 = 4, out_channels_2 = 9;
+  const int fused_num_blocks = 1, fused_block_size = 256, in_channels = 144, height = 56, width=56, out_channels_1 = 6, out_channels_2 = 14;
+  // const int fused_num_blocks = 1, fused_block_size = 512, in_channels = 240, height = 28, width=28, out_channels_1 = 10, out_channels_2 = 240;
+  // const int in_channels = 480, fused_block_size = 256, height = 14, width=14, out_channels_1 = 20, out_channels_2 = 480;
+  // const int fused_num_blocks = 1, fused_block_size = 256, in_channels = 672, height = 14, width=14, out_channels_1 = 28, out_channels_2 = 672;
+  // const int fused_num_blocks = 3, fused_block_size = 256, in_channels = 1152, height=7, width=7, out_channels_1=48, out_channels_2=1152;
+
+  const int loop = 10000;
+
   const int input_size = batch*height*width*in_channels;
   const int weight1_size = in_channels * out_channels_1;
   const int weight2_size = out_channels_1 * out_channels_2;
@@ -87,11 +102,13 @@ int main() {
   cudaMemcpy(d_bias2, bias2, sizeof(float)*out_channels_2, cudaMemcpyHostToDevice);
   cudaDeviceSynchronize();
 
+  
   // Warm up
   cudaEvent_t startEvent, stopEvent;
   checkCuda(cudaEventCreate(&startEvent));
   checkCuda(cudaEventCreate(&stopEvent));
-  fused_micro_operators<<<dim3(1, 1, 1), dim3(256, 1, 1)>>>(d_input, d_weight1, d_bias1, d_weight2, d_bias2, d_output);
+  FUSED_FUNC_CALL
+  
   cudaDeviceSynchronize();
   // err = cudaMemcpy(ori_output, d_ori_output, sizeof(float)*output_size, cudaMemcpyDeviceToHost);
   err = cudaMemcpy(output, d_output, sizeof(float)*output_size, cudaMemcpyDeviceToHost);
@@ -103,7 +120,6 @@ int main() {
   }
 
   // Benchmark
-  const int loop = 100;
   float ms = 0, sum = 0, min = 10000, max=0;
   // 1. For original pointwise conv
   for(int i=0; i<loop; ++i){
@@ -131,7 +147,8 @@ int main() {
   ms = 0, sum = 0, min = 10000, max=0;
   for(int i=0; i<loop; ++i){
     checkCuda( cudaEventRecord(startEvent,0) );
-    fused_micro_operators<<<dim3(1, 1, 1), dim3(256, 1, 1)>>>(d_input, d_weight1, d_bias1, d_weight2, d_bias2, d_output);
+    FUSED_FUNC_CALL
+    
     checkCuda( cudaEventRecord(stopEvent,0) );
     checkCuda( cudaEventSynchronize(stopEvent) );
     checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
@@ -142,7 +159,8 @@ int main() {
   sum = 0;
   for(int i=0; i<loop; ++i){
     checkCuda( cudaEventRecord(startEvent,0) );
-    fused_micro_operators<<<dim3(1, 1, 1), dim3(256, 1, 1)>>>(d_input, d_weight1, d_bias1, d_weight2, d_bias2, d_output);
+    FUSED_FUNC_CALL
+    
     checkCuda( cudaEventRecord(stopEvent,0) );
     checkCuda( cudaEventSynchronize(stopEvent) );
     checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
@@ -150,7 +168,6 @@ int main() {
     ms > max? max=ms: 0;
     ms < min? min=ms: 0;
   }printf("After fuse avg time %f, min %f, max %f\n", sum / loop, min, max);
-  
   
   // Print result
   printf("outputs:->\n");

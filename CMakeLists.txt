@@ -32,7 +32,7 @@ add_executable(learn_shuffle src/learn_cuda/learn_shuffle.cu)
 set(EFFICIENT_NET_PATH "src/operator_fusion/efficientnet/")
 add_executable(fused_pointwise_pointwise_main ${EFFICIENT_NET_PATH}/fused_pointwise_pointwise_main.cu ${EFFICIENT_NET_PATH}/pointwise_112_112_6_144.cu ${EFFICIENT_NET_PATH}/pointwise_112_112_144_6.cu)
 add_executable(fused_pointwise_depthwise_main ${EFFICIENT_NET_PATH}/fused_pointwise_depthwise_main.cu ${EFFICIENT_NET_PATH}/depthwise_56_56_144_3_3_s11.cu ${EFFICIENT_NET_PATH}/pointwise_56_56_24_144.cu ${EFFICIENT_NET_PATH}/fused_pointwise_depthwise.cu)
-add_executable(fused_micro_operators_main ${EFFICIENT_NET_PATH}/fused_micro_operators_main.cu ${EFFICIENT_NET_PATH}/fused_micro_operators.cu)
+add_executable(fused_micro_operators_main ${EFFICIENT_NET_PATH}/fused_micro_operators_main.cu)
 
 # add_executable(fused_pointwise_pointwise_conv src/operator_fusion/efficientnet/fused_pointwise_pointwise_main.cu src/operator_fusion/efficientnet/pointwise_112_112_144_6.cu)
 # add_executable(fused_pointwise_pointwise_conv ${FUSE_SRC_FILES})
