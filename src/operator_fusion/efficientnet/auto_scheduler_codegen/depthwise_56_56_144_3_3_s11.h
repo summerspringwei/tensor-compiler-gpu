@@ -1,18 +1,6 @@
 //  grid=(504,1,1),  block=(128,1,1)
+#pragma once
 
-#ifdef _WIN32
-  using uint = unsigned int;
-  using uchar = unsigned char;
-  using ushort = unsigned short;
-  using int64_t = long long;
-  using uint64_t = unsigned long long;
-#else
-  #define uint unsigned int
-  #define uchar unsigned char
-  #define ushort unsigned short
-  #define int64_t long long
-  #define uint64_t unsigned long long
-#endif
 
 // 56*56*144 == 504*128*7, 128*7=56*16
 // Input: NHWC, weight:[filter_height, filter_width, in_channel, channel_multiplier]
@@ -330,4 +318,4 @@ extern "C" __global__ void __launch_bounds__(128) fused_pointwise_56_56_24_144_d
     (((((int)blockIdx.x) % 36) / 9) * 2016)) + (((((int)threadIdx.x) & 31) >> 4) * 1008)) + 
     (j_inner * 144)) + ((((int)blockIdx.x) % 9) * 16)) + (((int)threadIdx.x) & 15)))] = DepthwiseConv2d_local[(j_inner)];
   }
-}
+};

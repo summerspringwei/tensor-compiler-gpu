@@ -4,10 +4,12 @@
 #include <vector>
 #include <cstdlib>
 #include <time.h> 
-typedef unsigned long uint64_t;
+#include <sstream>      // std::stringstream
 
-uint64_t get_shape_size(std::vector<uint64_t> shape){
-    uint64_t shape_size = 1;
+// typedef unsigned long uint64_t;
+
+unsigned long get_shape_size(std::vector<unsigned long> shape){
+    unsigned long shape_size = 1;
     for(auto s: shape){
         shape_size *= s;
     }
@@ -37,6 +39,11 @@ void init_values(float* input, std::vector<int> shape, float value, int mod=0){
         input[i] = value;
       }else{
         input[i] = rand() % 10; 
+        // if(i%2==0){
+        //   input[i] = 1;
+        // }else{
+        //   input[i] = 2;
+        // }
       }
     }
   }else{
@@ -147,13 +154,14 @@ void init_conv_conv_fusion_data(float* input, float* weight1, float* weight2, fl
 
 
 void pointwise_conv(float* input, float* pw_weight, float* output,
-  const int height, const int width, const int in_channel, const int  out_channel){
+  const int height, const int width, const int in_channel, const int out_channel){
   for (int h = 0; h < height; ++h) {
     for (int w = 0; w < width; ++w) {
       for(int oc = 0; oc<out_channel; ++oc){
         float sum = 0;
         for (int ic = 0; ic < in_channel; ++ic) {
-          sum += input[h*width*in_channel + w*in_channel + ic] * pw_weight[oc*in_channel + ic];
+          // sum += input[h*width*in_channel + w*in_channel + ic] * pw_weight[oc*in_channel + ic];
+          sum += input[h*width*in_channel + w*in_channel + ic] * pw_weight[ic*out_channel+oc];
         }
         output[h*width*out_channel+ w*out_channel + oc] = sum;
       }
@@ -161,5 +169,39 @@ void pointwise_conv(float* input, float* pw_weight, float* output,
   }
 }
   
+void check_equal(float* output1, float* output2, int height, int width, int channels){
+  std::stringstream ss;
+  bool equal = true;
+  for (int h = 0; h < height; ++h) {
+    for (int w = 0; w < width; ++w) {
+      for (int oc = 0; oc < channels; ++oc) {
+        int idx = h*width*channels + w*channels+oc;
+        if(std::abs(output1[idx] - output2[idx]) > 0.1 ){
+          equal = false;
+          ss << "<" << h << "," << w <<"," << oc <<",> " << output1[idx] << " " << output2[idx] <<"\n";
+        }
+      }
+    }
+  }
+  if(!equal){
+    printf("Check failed!\n");
+    printf("%s", ss.str().c_str());  
+  }else{
+    printf("Check pass!\n");
+  }
+}
+
+void print_output(float* output, int height, int width, int channels){
+  printf("outputs:->\n");
+  for (int h = 0; h < height; ++h) {
+    for (int w = 0; w < width; ++w) {
+      for (int oc = 0; oc < channels; ++oc) {
+        int idx = h*width*channels + w*channels+oc;
+        printf("%.2f ", output[idx]);
+      }printf("\n");
+    }printf("\n");
+  }printf("\n");
+}
+
 
 #endif

@@ -1,3 +1,4 @@
+#pragma once
 // grid=(196,1,1),  block=(128,1,1)
 #include <assert.h>
 #include <stdio.h>

@@ -34,7 +34,7 @@
 ################################################################################
 
 # Location of the CUDA Toolkit
-CUDA_PATH ?= /usr/local/cuda
+CUDA_PATH ?= /usr/local/cuda-11.6
 
 ##############################
 # start deprecated interface #
@@ -297,7 +297,8 @@ endif
 # Target rules
 all: build
 
-build: fused_pointwise_pointwise_main fused_pointwise_depthwise_main fused_micro_operators_main
+# build: fused_pointwise_pointwise_main fused_pointwise_depthwise_main fused_micro_operators_main
+build: fused_pointwise_pointwise_main fused_micro_operators_main
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -308,35 +309,36 @@ endif
 
 fused_pointwise_pointwise_main.o:fused_pointwise_pointwise_main.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-pointwise_112_112_6_144.o:pointwise_112_112_6_144.cu
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-pointwise_112_112_144_6.o:pointwise_112_112_144_6.cu
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+# pointwise_112_112_6_144.o:pointwise_112_112_6_144.cu
+# 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+# pointwise_112_112_144_6.o:pointwise_112_112_144_6.cu
+# 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-fused_pointwise_pointwise_main: fused_pointwise_pointwise_main.o pointwise_112_112_6_144.o pointwise_112_112_144_6.o
+# fused_pointwise_pointwise_main: fused_pointwise_pointwise_main.o pointwise_112_112_6_144.o pointwise_112_112_144_6.o
+fused_pointwise_pointwise_main: fused_pointwise_pointwise_main.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 	# $(EXEC) cp $@ ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 
 
 
-fused_pointwise_depthwise_main.o:fused_pointwise_depthwise_main.cu
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-depthwise_56_56_144_3_3_s11.o:depthwise_56_56_144_3_3_s11.cu
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-pointwise_56_56_24_144.o:pointwise_56_56_24_144.cu
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-fused_pointwise_depthwise.o:fused_pointwise_depthwise.cu
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+# fused_pointwise_depthwise_main.o:fused_pointwise_depthwise_main.cu
+# 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+# depthwise_56_56_144_3_3_s11.o:depthwise_56_56_144_3_3_s11.cu
+# 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+# pointwise_56_56_24_144.o:pointwise_56_56_24_144.cu
+# 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+# fused_pointwise_depthwise.o:fused_pointwise_depthwise.cu
+# 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-fused_pointwise_depthwise_main: fused_pointwise_depthwise_main.o depthwise_56_56_144_3_3_s11.o fused_pointwise_depthwise.o pointwise_56_56_24_144.o
-	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+# fused_pointwise_depthwise_main: fused_pointwise_depthwise_main.o depthwise_56_56_144_3_3_s11.o fused_pointwise_depthwise.o pointwise_56_56_24_144.o
+# 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 fused_micro_operators_main.o:fused_micro_operators_main.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-fused_micro_operators.o:fused_micro_operators.cu
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+# fused_micro_operators.o:fused_micro_operators.cu
+# 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-fused_micro_operators_main: fused_micro_operators_main.o fused_micro_operators.o
+fused_micro_operators_main: fused_micro_operators_main.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 

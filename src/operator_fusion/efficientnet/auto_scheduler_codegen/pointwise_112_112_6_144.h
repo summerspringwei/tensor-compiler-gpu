@@ -1,19 +1,7 @@
 
 // grid=(1344,1,1),  block=(96,1,1)
+#pragma once
 
-#ifdef _WIN32
-  using uint = unsigned int;
-  using uchar = unsigned char;
-  using ushort = unsigned short;
-  using int64_t = long long;
-  using uint64_t = unsigned long long;
-#else
-  #define uint unsigned int
-  #define uchar unsigned char
-  #define ushort unsigned short
-  #define int64_t long long
-  #define uint64_t unsigned long long
-#endif
 extern "C" __global__ void __launch_bounds__(96) pointwise_112_112_6_144(float* __restrict__ input, float* __restrict__ weight, float* __restrict__ output) {
   float output_local[14];
   __shared__ float input_shared[168];

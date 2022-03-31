@@ -5,6 +5,9 @@
 #include <mma.h>
 #include <cuda_fp16.h>
 
+#include "fused_pointwise_depthwise.h"
+#include "auto_scheduler_codegen/pointwise_56_56_24_144.h"
+#include "auto_scheduler_codegen/depthwise_56_56_144_3_3_s11.h"
 #include "../../utils.h"
 #include "../../cuda_utils.h"
 
@@ -17,21 +20,6 @@
         abort();                                                                            \
     }                                                                                       \
 } while(0)
-
-
-
-// dim3(196,1,1), dim3(288,1,1)
-extern "C" __global__ void __launch_bounds__(288) pointwise_56_56_24_144(float* __restrict__ input, float* __restrict__ weight, float* __restrict__ output);
-
-// dim3(504,1,1), dim3(128,1,1)
-extern "C" __global__ void __launch_bounds__(128) depthwise_56_56_144_s11(float* __restrict__ input, float* __restrict__ weight, float* __restrict__ DepthwiseConv2d);
-
-extern "C" __global__ void __launch_bounds__(128) fused_pointwise_56_56_24_144_depthwise_56_56_144_s11(
-  float* __restrict__ input,  float* __restrict__ pointwise_weight, float* __restrict__ depthwise_weight, float* __restrict__ DepthwiseConv2d);
-
-// dim3(112, 0, 0), dim3(256, 0, 0)
-extern "C" __global__ void __launch_bounds__(256) fused_pointwise_depthwise(
-  float* __restrict__ input,  float* __restrict__ pointwise_weight, float* __restrict__ depthwise_weight, float* __restrict__ DepthwiseConv2d);
 
 int main() {
   // Declare size

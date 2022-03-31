@@ -43,9 +43,9 @@ void init_inputs_and_weights(float* input, float* weight1, float* bias1, float* 
 int main() {
   // Declare size
   const int batch = 1;
-  // const int fused_num_blocks = 1, fused_block_size = 512, in_channels = 32, height = 112, width=112, out_channels_1 = 8, out_channels_2 = 32;
+  const int fused_num_blocks = 1, fused_block_size = 512, in_channels = 32, height = 112, width=112, out_channels_1 = 8, out_channels_2 = 32;
   // const int fused_num_blocks = 1, fused_block_size = 512, in_channels = 96, height = 112, width=112, out_channels_1 = 4, out_channels_2 = 9;
-  const int fused_num_blocks = 1, fused_block_size = 256, in_channels = 144, height = 56, width=56, out_channels_1 = 6, out_channels_2 = 14;
+  // const int fused_num_blocks = 1, fused_block_size = 256, in_channels = 144, height = 56, width=56, out_channels_1 = 6, out_channels_2 = 14;
   // const int fused_num_blocks = 1, fused_block_size = 512, in_channels = 240, height = 28, width=28, out_channels_1 = 10, out_channels_2 = 240;
   // const int in_channels = 480, fused_block_size = 256, height = 14, width=14, out_channels_1 = 20, out_channels_2 = 480;
   // const int fused_num_blocks = 1, fused_block_size = 256, in_channels = 672, height = 14, width=14, out_channels_1 = 28, out_channels_2 = 672;
@@ -148,7 +148,6 @@ int main() {
   for(int i=0; i<loop; ++i){
     checkCuda( cudaEventRecord(startEvent,0) );
     FUSED_FUNC_CALL
-    
     checkCuda( cudaEventRecord(stopEvent,0) );
     checkCuda( cudaEventSynchronize(stopEvent) );
     checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
@@ -160,7 +159,6 @@ int main() {
   for(int i=0; i<loop; ++i){
     checkCuda( cudaEventRecord(startEvent,0) );
     FUSED_FUNC_CALL
-    
     checkCuda( cudaEventRecord(stopEvent,0) );
     checkCuda( cudaEventSynchronize(stopEvent) );
     checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
