@@ -5,10 +5,15 @@
 #include <cuda.h>
 #include <mma.h>
 #include <cuda_fp16.h>
+#include <cuda_runtime.h>
 
 #include "fused_pointwise_pointwise.h"
 #include "auto_scheduler_codegen/pointwise_112_112_16_32.h"
 #include "auto_scheduler_codegen/pointwise_112_112_32_96.h"
+#include "auto_scheduler_codegen/pointwise_conv_56_56_144_24.h"
+#include "auto_scheduler_codegen/pointwise_conv_56_56_24_144.h"
+#include "auto_scheduler_codegen/pointwise_conv_28_28_240_40.h"
+#include "auto_scheduler_codegen/pointwise_conv_28_28_40_240.h"
 
 #include "../../utils.h"
 #include "../../cuda_utils.h"
@@ -25,17 +30,44 @@
 
 void init_inputs_and_weights(float* input, float* weight1, float* bias1, float* weight2, float* bias2,
   int in_channels, int height, int width, int out_channels_1, int out_channels_2){
-  init_values(input, {height, width, in_channels}, 1, 1);
-  init_values(weight1, {in_channels, out_channels_1}, 1, 1);
+  // init_values(input, {height, width, in_channels}, 1, 1);
+  // init_values(weight1, {in_channels, out_channels_1}, 1, 1);
+  // init_values(bias1, {out_channels_1}, 1);
+  // init_values(weight2, {out_channels_1, out_channels_2}, 1, 1);
+  // init_values(bias2, {out_channels_2}, 1);
+  init_values(input, {height, width, in_channels}, 1);
+  init_values(weight1, {in_channels, out_channels_1}, 1);
   init_values(bias1, {out_channels_1}, 1);
-  init_values(weight2, {out_channels_1, out_channels_2}, 1, 1);
+  init_values(weight2, {out_channels_1, out_channels_2}, 1);
   init_values(bias2, {out_channels_2}, 1);
 }
 
+// For 112x112x32x16
+// const int height = 112, width = 112, in_channels=32, out_channels_1=16, out_channels_2 = 96, block_size = 256, num_blocks = height * width / 32;
+// #define FUNC1 pointwise_112_112_16_32<<<dim3(784,1,1),  dim3(32,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
+// #define FUNC2 pointwise_112_112_32_96<<<dim3(784,1,1),  dim3(32,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
+// #define FUSED_FUNC1_FUNC2 fused_pointwise_pointwise<32, out_channels_2, num_blocks, block_size, 16, 16, 8, 32,\
+//     height, width, in_channels, out_channels_1, out_channels_2><<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
+
+// For 56x56x144x24
+// const int height = 56, width = 56, in_channels=144, out_channels_1=24, out_channels_2 = 144, block_size = 16*24, tile_size_x = 32, num_blocks = height * width / tile_size_x;
+// #define FUNC1 pointwise_56_56_144_24<<<dim3(196,1,1), dim3(96,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
+// #define FUNC2 pointwise_56_56_24_144<<<dim3(196,1,1), dim3(288,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
+// #define FUSED_FUNC1_FUNC2 fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 16, 24, 16, 24,\
+//     height, width, in_channels, out_channels_1, out_channels_2><<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
+
+
+
+const int height = 28, width = 28, in_channels=240, out_channels_1=40, out_channels_2 = 240, block_size = 4*64, tile_size_x = 8, num_blocks = height * width / tile_size_x;
+#define FUNC1 pointwise_28_28_240_40<<<dim3(196,1,1), dim3(80,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
+#define FUNC2 pointwise_28_28_40_240<<<dim3(196,1,1), dim3(60,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
+#define FUSED_FUNC1_FUNC2 fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 8, 32, 4, 64,\
+    height, width, in_channels, out_channels_1, out_channels_2><<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
+// #define FUSED_FUNC1_FUNC2 {cudaLaunchCooperativeKernel((void*)fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 4, 40, 4, 40,\
+//     height, width, in_channels, out_channels_1, out_channels_2>, dim3(49,1,1), dim3(block_size,1,1), fused_kernelArgs, 64*1024);};
 
 int main() {
-  // Declare size
-  const int height = 112, width = 112, in_channels=32, out_channels_1=16, out_channels_2 = 96, block_size = 256, num_blocks = height * width / 32;
+
   // const int kernel_height = 1, kernel_width = 1;
   const int input_size = in_channels * height * width;
   const int weight1_size = in_channels * out_channels_1;
@@ -82,21 +114,29 @@ int main() {
   cudaMemcpy(d_pw_weight2, pw_weight2, sizeof(float)*weight2_size, cudaMemcpyHostToDevice);
   cudaDeviceSynchronize();
 
-  // Warm up
+  
+  void *fused_kernelArgs[] = { (void *)&(d_input), (void *)&(d_pw_weight1), (void *)&(d_pw_weight2), (void *)&(d_output) };
+  int dev = 0;
+  int numThreads = 240, numBlocksPerSm=0; \
+  cudaDeviceProp deviceProp; \
+  cudaGetDeviceProperties(&deviceProp, dev); \
+  cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 4, 40, 4, 40,\
+    height, width, in_channels, out_channels_1, out_channels_2>, numThreads, 0); \
+  printf("OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);\
   cudaEvent_t startEvent, stopEvent;
   checkCuda(cudaEventCreate(&startEvent));
   checkCuda(cudaEventCreate(&stopEvent));
-  fused_pointwise_pointwise<num_blocks, block_size, height, width, in_channels, out_channels_1, out_channels_2>\
-    <<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
-  pointwise_112_112_16_32<<<dim3(784,1,1),  dim3(32,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
-  pointwise_112_112_32_96<<<dim3(784,1,1),  dim3(32,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
+  // FUNC1
+  // FUNC2
+  FUSED_FUNC1_FUNC2
   err = cudaMemcpy(output, d_output, sizeof(float)*output_size, cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
   err = cudaGetLastError();
   if (err != cudaSuccess){
-    fprintf(stderr, "Failed to launch vectorAdd kernel (error code %s)!\n", cudaGetErrorString(err));
+    fprintf(stderr, "Failed to launch kernel (error code %s)!\n", cudaGetErrorString(err));
     exit(EXIT_FAILURE);
   }
+  bool equal = check_equal(output, cpu_output, height, width, out_channels_2);
 
   // Benchmark
   const int round_cout = 2, loop = 10000;
@@ -106,8 +146,8 @@ int main() {
     ms = 0, sum = 0;
     for(int i=0; i<loop; ++i){
       checkCuda( cudaEventRecord(startEvent,0) );
-      pointwise_112_112_16_32<<<dim3(784,1,1),  dim3(32,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
-      pointwise_112_112_32_96<<<dim3(784,1,1),  dim3(32,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
+      FUNC1
+      FUNC2
       checkCuda( cudaEventRecord(stopEvent,0) );
       checkCuda( cudaEventSynchronize(stopEvent) );
       checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
@@ -119,17 +159,13 @@ int main() {
     ms = 0, sum = 0;
     for(int i=0; i<loop; ++i){
       checkCuda( cudaEventRecord(startEvent,0) );
-      fused_pointwise_pointwise<num_blocks, block_size, height, width, in_channels, out_channels_1, out_channels_2>\
-      <<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
+      FUSED_FUNC1_FUNC2
       checkCuda( cudaEventRecord(stopEvent,0) );
       checkCuda( cudaEventSynchronize(stopEvent) );
       checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
       sum += ms;
     }printf("After fuse avg time %f\n", sum / loop);
   }
-  
-  check_equal(output, cpu_output, height, width, out_channels_2);
-
 
   // Free
   cudaFree(d_input);

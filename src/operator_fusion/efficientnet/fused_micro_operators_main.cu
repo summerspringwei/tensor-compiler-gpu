@@ -56,7 +56,7 @@ int main() {
   const int input_size = batch*height*width*in_channels;
   const int weight1_size = in_channels * out_channels_1;
   const int weight2_size = out_channels_1 * out_channels_2;
-  const int output_size = out_channels_2;
+  const int output_size = batch*height*width*in_channels;
 
 
   // Declare arrays

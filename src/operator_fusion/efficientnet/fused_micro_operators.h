@@ -317,22 +317,23 @@ __global__ void __launch_bounds__(block_size) fused_micro_operators_v3(
       for(int rk=0; rk<out_channels_1; ++rk){
         output2_local[i] += shared_output1_local[rk] * weight2[rk*out_channels_2 + idx];
       }
-      // shared_output2[idx] = sigmoid(output2_local[i] + bias2[idx]);
-      output[idx] = sigmoid(output2_local[i] + bias2[idx]);
+      shared_output2[idx] = sigmoid(output2_local[i] + bias2[idx]);
+      // output[idx] = sigmoid(output2_local[i] + bias2[idx]);
     }
   }
-  // __syncthreads();
-  // // Do the matmul
-  // const int mul_tile_size_y = 32, mul_tile_size_x = block_size / mul_tile_size_y;
-  // const int mul_num_iter_x = UPDIV(height * width, mul_tile_size_x), mul_num_iter_y = UPDIV(in_channels, mul_tile_size_y);
-  // #pragma unroll
-  // for(int i=0; i<mul_num_iter_x; ++i){
-  //   #pragma unroll
-  //   int row = i * mul_tile_size_x + (threadIdx.x / mul_tile_size_y);
-  //   #pragma unroll
-  //   for(int j=0; j<mul_num_iter_y; ++j){
-  //     int col = j * mul_tile_size_y + (threadIdx.x % mul_tile_size_y);
-  //     input[row*in_channels + col] = input[row*in_channels + col] * shared_output2[col];
-  //   }
-  // }
+  __syncthreads();
+  // Do the matmul
+  const int mul_tile_size_y = 32, mul_tile_size_x = block_size / mul_tile_size_y;
+  const int mul_num_iter_x = UPDIV(height * width, mul_tile_size_x), mul_num_iter_y = UPDIV(in_channels, mul_tile_size_y);
+  #pragma unroll
+  for(int i=0; i<mul_num_iter_x; ++i){
+    #pragma unroll
+    int row = i * mul_tile_size_x + (threadIdx.x / mul_tile_size_y);
+    #pragma unroll
+    for(int j=0; j<mul_num_iter_y; ++j){
+      int col = j * mul_tile_size_y + (threadIdx.x % mul_tile_size_y);
+      output[row*in_channels + col] = input[row*in_channels + col] * shared_output2[col];
+    }
+  }
+
 };

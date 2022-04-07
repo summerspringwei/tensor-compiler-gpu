@@ -169,7 +169,7 @@ void pointwise_conv(float* input, float* pw_weight, float* output,
   }
 }
   
-void check_equal(float* output1, float* output2, int height, int width, int channels){
+bool check_equal(float* output1, float* output2, int height, int width, int channels){
   std::stringstream ss;
   bool equal = true;
   for (int h = 0; h < height; ++h) {
@@ -189,6 +189,7 @@ void check_equal(float* output1, float* output2, int height, int width, int chan
   }else{
     printf("Check pass!\n");
   }
+  return equal;
 }
 
 void print_output(float* output, int height, int width, int channels){
