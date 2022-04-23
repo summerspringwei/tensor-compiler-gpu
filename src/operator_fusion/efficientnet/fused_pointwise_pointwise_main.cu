@@ -43,26 +43,26 @@ void init_inputs_and_weights(float* input, float* weight1, float* bias1, float* 
 }
 
 // For 112x112x32x16
-// const int height = 112, width = 112, in_channels=32, out_channels_1=16, out_channels_2 = 96, block_size = 256, num_blocks = height * width / 32;
+// const int height = 112, width = 112, in_channels=32, out_channels_1=16, out_channels_2 = 96, block_size = 256, tile_size_x = 32, num_blocks = height * width / tile_size_x;
 // #define FUNC1 pointwise_112_112_16_32<<<dim3(784,1,1),  dim3(32,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
 // #define FUNC2 pointwise_112_112_32_96<<<dim3(784,1,1),  dim3(32,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
 // #define FUSED_FUNC1_FUNC2 fused_pointwise_pointwise<32, out_channels_2, num_blocks, block_size, 16, 16, 8, 32,\
 //     height, width, in_channels, out_channels_1, out_channels_2><<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
 
 // For 56x56x144x24
-// const int height = 56, width = 56, in_channels=144, out_channels_1=24, out_channels_2 = 144, block_size = 16*24, tile_size_x = 32, num_blocks = height * width / tile_size_x;
-// #define FUNC1 pointwise_56_56_144_24<<<dim3(196,1,1), dim3(96,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
-// #define FUNC2 pointwise_56_56_24_144<<<dim3(196,1,1), dim3(288,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
-// #define FUSED_FUNC1_FUNC2 fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 16, 24, 16, 24,\
-//     height, width, in_channels, out_channels_1, out_channels_2><<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
-
-
-
-const int height = 28, width = 28, in_channels=240, out_channels_1=40, out_channels_2 = 240, block_size = 4*64, tile_size_x = 8, num_blocks = height * width / tile_size_x;
-#define FUNC1 pointwise_28_28_240_40<<<dim3(196,1,1), dim3(80,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
-#define FUNC2 pointwise_28_28_40_240<<<dim3(196,1,1), dim3(60,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
-#define FUSED_FUNC1_FUNC2 fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 8, 32, 4, 64,\
+const int height = 56, width = 56, in_channels=144, out_channels_1=24, out_channels_2 = 144, block_size = 16*24, tile_size_x = 32, num_blocks = height * width / tile_size_x;
+#define FUNC1 pointwise_56_56_144_24<<<dim3(196,1,1), dim3(96,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
+#define FUNC2 pointwise_56_56_24_144<<<dim3(196,1,1), dim3(288,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
+#define FUSED_FUNC1_FUNC2 fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 16, 24, 16, 24,\
     height, width, in_channels, out_channels_1, out_channels_2><<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
+
+
+
+// const int height = 28, width = 28, in_channels=240, out_channels_1=40, out_channels_2 = 240, block_size = 4*64, tile_size_x = 8, num_blocks = height * width / tile_size_x;
+// #define FUNC1 pointwise_28_28_240_40<<<dim3(196,1,1), dim3(80,1,1)>>>(d_input, d_pw_weight1, d_tmp_output);
+// #define FUNC2 pointwise_28_28_40_240<<<dim3(196,1,1), dim3(60,1,1)>>>(d_tmp_output, d_pw_weight2, d_ori_output);
+// #define FUSED_FUNC1_FUNC2 fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 8, 32, 4, 64,\
+//     height, width, in_channels, out_channels_1, out_channels_2><<<dim3(num_blocks,1,1), dim3(block_size,1,1)>>>(d_input, d_pw_weight1, d_pw_weight2, d_output);
 // #define FUSED_FUNC1_FUNC2 {cudaLaunchCooperativeKernel((void*)fused_pointwise_pointwise<tile_size_x, out_channels_2, num_blocks, block_size, 4, 40, 4, 40,\
 //     height, width, in_channels, out_channels_1, out_channels_2>, dim3(49,1,1), dim3(block_size,1,1), fused_kernelArgs, 64*1024);};
 

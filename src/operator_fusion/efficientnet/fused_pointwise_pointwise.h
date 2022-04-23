@@ -36,10 +36,18 @@ __global__ void __launch_bounds__(block_size, 1) fused_pointwise_pointwise(float
     }
   }
   // Load shared weight
-  const int load_shared_weight1_num_iters = UPDIV(in_channels * out_channels_1, block_size);
+  // const int load_shared_weight1_num_iters = UPDIV(in_channels * out_channels_1, block_size);
+  // for(int i=0;i<load_shared_weight1_num_iters; ++i){
+  //   if(i*blockDim.x + threadIdx.x < in_channels * out_channels_1){
+  //     shared_weight1[i*blockDim.x + threadIdx.x] = weight1[i*blockDim.x + threadIdx.x];
+  //   }
+  // }
+  // Load shared weight
+  const int kVectorSize = 4;
+  const int load_shared_weight1_num_iters = UPDIV(in_channels * out_channels_1, block_size * kVectorSize);
   for(int i=0;i<load_shared_weight1_num_iters; ++i){
-    if(i*blockDim.x + threadIdx.x < in_channels * out_channels_1){
-      shared_weight1[i*blockDim.x + threadIdx.x] = weight1[i*blockDim.x + threadIdx.x];
+    if(kVectorSize * (i*blockDim.x + threadIdx.x) < in_channels * out_channels_1){
+      reinterpret_cast<float4*>(shared_weight1)[i*blockDim.x + threadIdx.x] = reinterpret_cast<float4*>(weight1)[i*blockDim.x + threadIdx.x];
     }
   }
   __syncthreads();

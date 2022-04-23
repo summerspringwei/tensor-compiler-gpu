@@ -20,6 +20,10 @@ SET(CUDA_SEPARABLE_COMPILATION ON)
 include_directories("third_party/libnpy/include")
 # add_compile_options(-fno-stack-protector)
 
+# add_executable(tmp src/learn_cuda/tmp.cu)
+# add_executable(opt_conv_tensorcore src/learn_cuda/opt_conv_tensorcore.cu)
+add_executable(opt_matmul_tensorcore src/learn_cuda/opt_matmul_tensorcore.cu)
+
 add_executable(reduce_using_reg src/learn_cuda/reduce_using_reg.cu)
 add_executable(add src/learn_cuda/Add.cu)
 add_executable(reduce src/learn_cuda/Reduce.cu)
