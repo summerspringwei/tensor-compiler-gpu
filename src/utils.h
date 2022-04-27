@@ -6,6 +6,8 @@
 #include <time.h> 
 #include <sstream>      // std::stringstream
 
+#include <cuda_fp16.h>
+
 // typedef unsigned long uint64_t;
 
 unsigned long get_shape_size(std::vector<unsigned long> shape){
@@ -29,16 +31,43 @@ void print_and_check(std::vector<float>& output, float expected){
   }
 }
 
-// mod: 0 for fix number 1 for random number
 
-void init_values(float* input, std::vector<int> shape, float value, int mod=0){
+template<typename T>
+void hf_init_values(T* input, std::vector<int> shape, T value, int mod=0){
   srand (time(NULL));
   if(shape.size()==1){
     for(int i=0; i<shape[0]; ++i){
       if(mod==0){
         input[i] = value;
       }else{
-        input[i] = rand() % 10; 
+        input[i] = __float2half((float)(rand() % 10));
+      }
+    }
+  }else{
+    int left_size = 1;
+    std::vector<int> new_shape;
+    for(int i=1; i<shape.size(); ++i){
+      left_size *= shape[i];
+      new_shape.push_back(shape[i]);
+    }
+    for(int i=0; i<shape[0]; ++i){
+      init_values(input+i*left_size, new_shape, value, mod);
+    }
+  }
+}
+
+
+
+// mod: 0 for fix number 1 for random number
+template<typename T>
+void init_values(T* input, std::vector<int> shape, T value, int mod=0){
+  srand (time(NULL));
+  if(shape.size()==1){
+    for(int i=0; i<shape[0]; ++i){
+      if(mod==0){
+        input[i] = value;
+      }else{
+        input[i] = (T)(rand() % 10);
         // if(i%2==0){
         //   input[i] = 1;
         // }else{
@@ -62,7 +91,7 @@ void init_values(float* input, std::vector<int> shape, float value, int mod=0){
 void test_init_values(){
   int n=1, c=3, h=4, w =4;
   float* input = new float[n*c*h*w];
-  init_values(input, {n,c,h,w}, 1, 1);
+  init_values<float>(input, {n,c,h,w}, 1, 1);
   for(int i=0;i<n*c*h*w; ++i){
     printf("%.2f ", input[i]);
   }
@@ -86,9 +115,9 @@ void init_conv_conv_fusion_data(float* input, float* weight1, float* weight2, fl
   const int height, const int width,
   const int kernel1_height, const int kernel1_width, const int kernel1_in_channel, const int kernel1_out_channel, 
   const int kernel2_height, const int kernel2_width, const int kernel2_in_channel, const int kernel2_out_channel){
-  init_values(input, {height, width, kernel1_in_channel}, 1);
-  init_values(weight1, {kernel1_height, kernel1_width, kernel1_in_channel, kernel1_out_channel}, 1);
-  init_values(weight2, {kernel2_height, kernel2_width, kernel2_in_channel, kernel2_out_channel}, 1);
+  init_values<float>(input, {height, width, kernel1_in_channel}, 1);
+  init_values<float>(weight1, {kernel1_height, kernel1_width, kernel1_in_channel, kernel1_out_channel}, 1);
+  init_values<float>(weight2, {kernel2_height, kernel2_width, kernel2_in_channel, kernel2_out_channel}, 1);
 }
 // /**
 //  * @brief Init input and weights for two continuos conv

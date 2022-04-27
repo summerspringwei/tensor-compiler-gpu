@@ -16,7 +16,7 @@ def generate_gpu_data_code(data_size_dict, data_type, file_name="default_kernel.
   for name, size in data_size_dict.items():
     line = "\t{} *{} = new {}[{}];\n".format(data_type, name, data_type, size)
     CPU_malloc_code.append(line)
-    line = "\t{} *{}=NULL;\n".format(data_type, name)
+    line = "\t{} *d_{}=NULL;\n".format(data_type, name)
     GPU_declare_code.append(line)
     line = "\terr=cudaMalloc((void **)&d_{}, sizeof({})*{});\n".format(name, data_type, size)
     GPU_malloc_code.append(line)
@@ -24,7 +24,7 @@ def generate_gpu_data_code(data_size_dict, data_type, file_name="default_kernel.
       line = "\tcudaMemcpy(d_{}, {}, sizeof({})*{}, cudaMemcpyHostToDevice);\n".format(name, name, data_type, size)
       GPU_cp_code.append(line)
     if name in output_names:
-      line = "\tcudaMemcpy(d_{}, {}, sizeof({})*{}, cudaMemcpyDeviceToHost);\n".format(name, name, data_type, size)
+      line = "\tcudaMemcpy({}, d_{}, sizeof({})*{}, cudaMemcpyDeviceToHost);\n".format(name, name, data_type, size)
       GPU_cpback_code.append(line)
     CPU_free_code.append("\tdelete[] {};\n".format(name))
     GPU_free_code.append("\tcudaFree(d_{});\n".format(name))
@@ -42,6 +42,12 @@ def generate_gpu_data_code(data_size_dict, data_type, file_name="default_kernel.
   code.extend("\tcudaDeviceSynchronize();\n")
   code.extend(GPU_cpback_code)
   code.extend("\tcudaDeviceSynchronize();\n")
+  code.append("""
+  if (err != cudaSuccess){
+    fprintf(stderr, "Failed to allocate device vector d_a (error code %s)!\\n", cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }\n
+  """)
   code.extend(CPU_free_code)
   code.extend(GPU_free_code)
   code.append("\treturn 0;\n}")
@@ -53,7 +59,11 @@ def generate_gpu_data_code(data_size_dict, data_type, file_name="default_kernel.
 
 
 def test_generate():
-  generate_gpu_data_code({"input": 1024, "weight": 2048, "output": 1024}, "float")
+  # generate_gpu_data_code({"input": 1*12*386*64, "weight": 1*12*386*64, "output": 1*12*384*384, \
+  #   "intermedia_output": 1*12*384*384, "ori_output": 1*12*384*384}, "half", output_names=["output", "intermedia_output", "ori_output"])
+  batch, num_heads, seq_length, dim = 64, 4, 64, 32
+  generate_gpu_data_code({"input": batch*num_heads*seq_length*dim, "weight": batch*num_heads*seq_length*dim, "output": batch*num_heads*seq_length*seq_length, \
+    "intermedia_output": batch*num_heads*seq_length*seq_length, "ori_output": batch*num_heads*seq_length*seq_length}, "half", output_names=["output", "intermedia_output", "ori_output"])
 
 
 if __name__=="__main__":

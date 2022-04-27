@@ -22,7 +22,7 @@ include_directories("third_party/libnpy/include")
 
 # add_executable(tmp src/learn_cuda/tmp.cu)
 # add_executable(opt_conv_tensorcore src/learn_cuda/opt_conv_tensorcore.cu)
-add_executable(opt_matmul_tensorcore src/learn_cuda/opt_matmul_tensorcore.cu)
+# add_executable(opt_matmul_tensorcore src/learn_cuda/opt_matmul_tensorcore.cu)
 
 add_executable(reduce_using_reg src/learn_cuda/reduce_using_reg.cu)
 add_executable(add src/learn_cuda/Add.cu)
@@ -38,6 +38,7 @@ add_executable(fused_pointwise_pointwise_main ${EFFICIENT_NET_PATH}/fused_pointw
 add_executable(fused_pointwise_depthwise_main ${EFFICIENT_NET_PATH}/fused_pointwise_depthwise_main.cu)
 add_executable(fused_micro_operators_main ${EFFICIENT_NET_PATH}/fused_micro_operators_main.cu)
 
+
 # add_executable(fused_pointwise_pointwise_conv src/operator_fusion/efficientnet/fused_pointwise_pointwise_main.cu src/operator_fusion/efficientnet/pointwise_112_112_144_6.cu)
 # add_executable(fused_pointwise_pointwise_conv ${FUSE_SRC_FILES})
 # add_executable(tvmgen src/tvm_codegen/fused_matmul_main.cu src/tvm_codegen/block_fuse_d2l_matmul_kernel0 /tmp/mmult_kernel0.cu)
@@ -48,6 +49,8 @@ add_executable(seq2seq src/lstm/seq2seq.cu)
 add_executable(lstm_cpu src/lstm/lstm_cpu.cpp)
 add_executable(test_atomic_add src/block_sync/test_atomic_add.cu)
 add_executable(cu_fused_pw_dw_conv src/operator_fusion/fused_depthwise_pointwise_conv.cu)
+add_executable(transformer_query_key_softmax_main src/operator_fusion/transformer/transformer_query_key_softmax_main.cu)
+add_executable(swin_transformer_query_key_softmax_main src/operator_fusion/transformer/swin_transformer_query_key_softmax_main.cu)
 
 # set_target_properties(lstm_wavefront_magic PROPERTIES CUDA_ARCHITECTURES "70;75;80")
 target_link_libraries(cudnn_conv cudnn)

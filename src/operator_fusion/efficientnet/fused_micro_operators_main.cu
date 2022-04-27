@@ -25,11 +25,11 @@
 
 void init_inputs_and_weights(float* input, float* weight1, float* bias1, float* weight2, float* bias2,
   int in_channels, int height, int width, int out_channels_1, int out_channels_2){
-  init_values(input, {height, width, in_channels}, 1);
-  init_values(weight1, {out_channels_1, in_channels}, 0.01);
-  init_values(bias1, {out_channels_1}, 1);
-  init_values(weight2, {out_channels_1, out_channels_2}, 0.01);
-  init_values(bias2, {out_channels_2}, 1);
+  init_values<float>(input, {height, width, in_channels}, 1);
+  init_values<float>(weight1, {out_channels_1, in_channels}, 0.01);
+  init_values<float>(bias1, {out_channels_1}, 1);
+  init_values<float>(weight2, {out_channels_1, out_channels_2}, 0.01);
+  init_values<float>(bias2, {out_channels_2}, 1);
 }
 
 
