@@ -8,9 +8,10 @@ check_language(CUDA)
 # set(CMAKE_CXX_COMPILER "/usr/local/cuda-10.0/bin//nvcc")
 set(CMAKE_CUDA_ARCHITECTURES "80")
 SET(CUDA_SEPARABLE_COMPILATION ON)
-# include_directories("/usr/local/cuda-11.6/include" "/usr/local/cudnn-11.2/include" "./inc")
+include_directories("/usr/local/cuda-11.6/include")
 # link_directories("/usr/local/cuda-11.6/lib64" "/usr/local/cudnn-11.2/lib64")
-
+include_directories("/usr/local/cudnn-11.2/include")
+link_directories("/usr/local/cudnn-11.2/lib64")
 # if(${CMAKE_BUILD_TYPE} EQUAL "Debug")
 #   message(INFO "Build with debug option")
 #   add_compile_options("-g -G -O0")
@@ -37,7 +38,8 @@ set(EFFICIENT_NET_PATH "src/operator_fusion/efficientnet/")
 add_executable(fused_pointwise_pointwise_main ${EFFICIENT_NET_PATH}/fused_pointwise_pointwise_main.cu)
 add_executable(fused_pointwise_depthwise_main ${EFFICIENT_NET_PATH}/fused_pointwise_depthwise_main.cu)
 add_executable(fused_micro_operators_main ${EFFICIENT_NET_PATH}/fused_micro_operators_main.cu)
-
+add_executable(cudnn_infer_ops src/operator_fusion/transformer/cudnn_infer_ops.cu)
+add_executable(swin_transformer_mlp src/operator_fusion/transformer/swin_transformer_mlp_main.cu)
 
 # add_executable(fused_pointwise_pointwise_conv src/operator_fusion/efficientnet/fused_pointwise_pointwise_main.cu src/operator_fusion/efficientnet/pointwise_112_112_144_6.cu)
 # add_executable(fused_pointwise_pointwise_conv ${FUSE_SRC_FILES})
@@ -54,4 +56,4 @@ add_executable(swin_transformer_query_key_softmax_main src/operator_fusion/trans
 
 # set_target_properties(lstm_wavefront_magic PROPERTIES CUDA_ARCHITECTURES "70;75;80")
 target_link_libraries(cudnn_conv cudnn)
-
+target_link_libraries(cudnn_infer_ops cudnn cuda cublas)

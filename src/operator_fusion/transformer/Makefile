@@ -260,10 +260,11 @@ ALL_LDFLAGS :=
 ALL_LDFLAGS += $(ALL_CCFLAGS)
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
+ALL_LDFLAGS += $(-lcudnn)
 
 # Common includes and paths for CUDA
 INCLUDES  := -I../../common/inc
-LIBRARIES :=
+LIBRARIES := -L/usr/local/cudnn-11.2/lib64/ -lcudnn
 
 ################################################################################
 
@@ -297,7 +298,7 @@ endif
 # Target rules
 all: build
 
-build: swin_transformer_query_key_softmax_main transformer_query_key_softmax_main
+build: swin_transformer_query_key_softmax_main transformer_query_key_softmax_main swin_transformer_mlp_main
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -310,18 +311,29 @@ swin_transformer_query_key_softmax_main.o:swin_transformer_query_key_softmax_mai
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 transformer_query_key_softmax_main.o:transformer_query_key_softmax_main.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+cudnn_infer_ops.o:cudnn_infer_ops.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+swin_transformer_mlp_main.o:swin_transformer_mlp_main.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
 swin_transformer_query_key_softmax_main: swin_transformer_query_key_softmax_main.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 transformer_query_key_softmax_main: transformer_query_key_softmax_main.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+cudnn_infer_ops: cudnn_infer_ops.o
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+swin_transformer_mlp_main: swin_transformer_mlp_main.o
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
 	$(EXEC) ./swin_transformer_query_key_softmax_main
 	$(EXEC) ./transformer_query_key_softmax_main
+	$(EXEC) ./cudnn_infer_ops
+	$(EXEC) ./swin_transformer_mlp_main
 
 clean:
 	rm -f swin_transformer_query_key_softmax_main swin_transformer_query_key_softmax_main.o
 	rm -f transformer_query_key_softmax_main transformer_query_key_softmax_main.o
-
+	rm -f cudnn_infer_ops cudnn_infer_ops.o
+	rm -f swin_transformer_mlp_main swin_transformer_mlp_main.o
 clobber: clean

@@ -1,29 +1,21 @@
 int main(){
-	half *input = new half[524288];
-	half *weight = new half[524288];
-	half *output = new half[1048576];
-	half *intermedia_output = new half[1048576];
-	half *ori_output = new half[1048576];
+	const int input_size=524288;	half *input = new half[input_size];
+	const int weight_size=1048576;	half *weight = new half[weight_size];
+	const int output_size=4194304;	half *output = new half[output_size];
 
 	cudaError_t err = cudaSuccess;
 	half *d_input=NULL;
 	half *d_weight=NULL;
 	half *d_output=NULL;
-	half *d_intermedia_output=NULL;
-	half *d_ori_output=NULL;
-	err=cudaMalloc((void **)&d_input, sizeof(half)*524288);
-	err=cudaMalloc((void **)&d_weight, sizeof(half)*524288);
-	err=cudaMalloc((void **)&d_output, sizeof(half)*1048576);
-	err=cudaMalloc((void **)&d_intermedia_output, sizeof(half)*1048576);
-	err=cudaMalloc((void **)&d_ori_output, sizeof(half)*1048576);
+	err=cudaMalloc((void **)&d_input, sizeof(half)*input_size);
+	err=cudaMalloc((void **)&d_weight, sizeof(half)*weight_size);
+	err=cudaMalloc((void **)&d_output, sizeof(half)*output_size);
 
-	cudaMemcpy(d_input, input, sizeof(half)*524288, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_weight, weight, sizeof(half)*524288, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_input, input, sizeof(half)*input_size, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_weight, weight, sizeof(half)*weight_size, cudaMemcpyHostToDevice);
 
 	cudaDeviceSynchronize();
-	cudaMemcpy(output, d_output, sizeof(half)*1048576, cudaMemcpyDeviceToHost);
-	cudaMemcpy(intermedia_output, d_intermedia_output, sizeof(half)*1048576, cudaMemcpyDeviceToHost);
-	cudaMemcpy(ori_output, d_ori_output, sizeof(half)*1048576, cudaMemcpyDeviceToHost);
+	cudaMemcpy(output, d_output, sizeof(half)*output_size, cudaMemcpyDeviceToHost);
 	cudaDeviceSynchronize();
 
   if (err != cudaSuccess){
@@ -34,12 +26,8 @@ int main(){
   	delete[] input;
 	delete[] weight;
 	delete[] output;
-	delete[] intermedia_output;
-	delete[] ori_output;
 	cudaFree(d_input);
 	cudaFree(d_weight);
 	cudaFree(d_output);
-	cudaFree(d_intermedia_output);
-	cudaFree(d_ori_output);
 	return 0;
 }

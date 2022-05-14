@@ -53,18 +53,25 @@ template<const int batch_size, const int num_heads, const int seq_length, const 
 __global__ void __launch_bounds__(seq_length) fused_mul_softmax(half* __restrict__ input, half* __restrict__ output){
   __shared__ half shared_input[seq_length * seq_length];
   half scale = ((half)1.0 / hsqrt((__float2half)(size_per_head)));
-  half sum=0;
+  half2 sum; sum.x=0, sum.y=0;
+  half2* iptr2 = reinterpret_cast<half2*>(input);
+  half2* sptr2 = reinterpret_cast<half2*>(shared_input);
+  half2 scale2; scale2.x=scale, scale2.y=scale;
   #pragma unroll
-  for(int i=0; i<seq_length; ++i){
-    //shape: [size_per_head, seq_length]
-    half tmp = hexp(input[blockIdx.x * seq_length * seq_length + threadIdx.x * seq_length + i] * scale);
+  for(int i=0; i<seq_length/2; ++i){
+    //shape: [size_per_head, seq_length]  
+    half2 tmp = h2exp(iptr2[(blockIdx.x * batch_size * num_heads + threadIdx.x * seq_length)/2 + i] * scale2);
+    // half tmp = hexp(input[blockIdx.x * batch_size * num_heads + i * seq_length + threadIdx.x] * scale);
     sum += tmp;
-    shared_input[threadIdx.x * seq_length + i] = tmp;
+    sptr2[(threadIdx.x * seq_length)/2 + i] = tmp;
   }
+  sum.x = sum.x + sum.y;
+  sum.y = sum.x;
   __syncthreads();
   #pragma unroll
-  for(int i=0; i<seq_length; ++i){
-    output[blockIdx.x * seq_length * seq_length + threadIdx.x * seq_length + i] = shared_input[threadIdx.x * seq_length + i] / sum;
+  for(int i=0; i<seq_length/2; ++i){
+    reinterpret_cast<half2*>(output)[(blockIdx.x * batch_size * num_heads + threadIdx.x * seq_length)/2 + i] = sptr2[(threadIdx.x * seq_length)/2 + i] / sum;
+    // output[blockIdx.x * batch_size * num_heads + i * seq_length + threadIdx.x] = shared_input[i * seq_length + threadIdx.x] / sum;
   }
 }
 
@@ -110,18 +117,31 @@ extern "C" __global__ void __launch_bounds__(32) fused_swin_transformer_query_ke
   half scale = ((half)1.0 / hsqrt((__float2half)(32.0f)));
   half2 scale2; scale2.x=scale, scale2.y=scale;
   half2 sum[2]; sum[0].x=0.0; sum[0].y=0.0;sum[1].x=0.0; sum[1].y=0.0;
-  
+  half2 max_num; max_num.x =-65504; max_num.y=-65504;
+
   for (int i_inner_j_inner_fused_outer_outer_outer_outer = 0; i_inner_j_inner_fused_outer_outer_outer_outer < 2; ++i_inner_j_inner_fused_outer_outer_outer_outer) {
     const int row_idx = i_inner_j_inner_fused_outer_outer_outer_outer * 32 + threadIdx.x;
     for(int rk=0; rk<32;++rk){
       const int index = row_idx * 72 / 2 + rk;
-      (reinterpret_cast<half2*>(placeholder_shared))[index] = h2exp(__hmul2((reinterpret_cast<half2*>(placeholder_shared))[index], scale2));
+      (reinterpret_cast<half2*>(placeholder_shared))[index] = __hmul2((reinterpret_cast<half2*>(placeholder_shared))[index], scale2);
+      max_num = __hmax2(max_num, (reinterpret_cast<half2*>(placeholder_shared))[index]);
+    }
+  }
+  half tmp_max = max_num.x > max_num.y ? max_num.x: max_num.y;
+  max_num.x = tmp_max; max_num.y = tmp_max;
+  __syncthreads();
+  for (int i_inner_j_inner_fused_outer_outer_outer_outer = 0; i_inner_j_inner_fused_outer_outer_outer_outer < 2; ++i_inner_j_inner_fused_outer_outer_outer_outer) {
+    const int row_idx = i_inner_j_inner_fused_outer_outer_outer_outer * 32 + threadIdx.x;
+    for(int rk=0; rk<32;++rk){
+      const int index = row_idx * 72 / 2 + rk;
+      (reinterpret_cast<half2*>(placeholder_shared))[index] = h2exp(__hsub2((reinterpret_cast<half2*>(placeholder_shared))[index], max_num));
       sum[i_inner_j_inner_fused_outer_outer_outer_outer] += (reinterpret_cast<half2*>(placeholder_shared))[index];
     }
   }
   half2 sum2[2];// Used for vector mul
   sum2[0].x = sum[0].x + sum[0].y; sum2[0].y = sum2[0].x;
   sum2[1].x = sum[1].x + sum[1].y; sum2[1].y = sum2[1].x;
+  __syncthreads();
   for (int i_inner_j_inner_fused_outer_outer_outer_outer = 0; i_inner_j_inner_fused_outer_outer_outer_outer < 2; ++i_inner_j_inner_fused_outer_outer_outer_outer) {
     const int row_idx = i_inner_j_inner_fused_outer_outer_outer_outer * 32 + threadIdx.x;
     for(int rk=0; rk<32;++rk){

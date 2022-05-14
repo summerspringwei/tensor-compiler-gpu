@@ -54,7 +54,7 @@ int main(){
   cudaEvent_t startEvent, stopEvent;
   checkCuda(cudaEventCreate(&startEvent));
   checkCuda(cudaEventCreate(&stopEvent));
-  const int round_cout = 2, loop = 10000;
+  const int round_cout = 5, loop = 10000;
   float ms = 0, sum = 0;
   // 1. For original pointwise conv
   for(int round =0; round<round_cout; ++round){

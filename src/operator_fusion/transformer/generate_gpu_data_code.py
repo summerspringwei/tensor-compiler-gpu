@@ -14,17 +14,20 @@ def generate_gpu_data_code(data_size_dict, data_type, file_name="default_kernel.
   CPU_free_code = []
   GPU_free_code = []
   for name, size in data_size_dict.items():
-    line = "\t{} *{} = new {}[{}];\n".format(data_type, name, data_type, size)
+    var_size = "{}_size".format(name)
+    line = "\tconst int {}_size={};".format(name, size)
+    CPU_malloc_code.append(line)
+    line = "\t{} *{} = new {}[{}];\n".format(data_type, name, data_type, var_size)
     CPU_malloc_code.append(line)
     line = "\t{} *d_{}=NULL;\n".format(data_type, name)
     GPU_declare_code.append(line)
-    line = "\terr=cudaMalloc((void **)&d_{}, sizeof({})*{});\n".format(name, data_type, size)
+    line = "\terr=cudaMalloc((void **)&d_{}, sizeof({})*{});\n".format(name, data_type, var_size)
     GPU_malloc_code.append(line)
     if name not in output_names:
-      line = "\tcudaMemcpy(d_{}, {}, sizeof({})*{}, cudaMemcpyHostToDevice);\n".format(name, name, data_type, size)
+      line = "\tcudaMemcpy(d_{}, {}, sizeof({})*{}, cudaMemcpyHostToDevice);\n".format(name, name, data_type, var_size)
       GPU_cp_code.append(line)
     if name in output_names:
-      line = "\tcudaMemcpy({}, d_{}, sizeof({})*{}, cudaMemcpyDeviceToHost);\n".format(name, name, data_type, size)
+      line = "\tcudaMemcpy({}, d_{}, sizeof({})*{}, cudaMemcpyDeviceToHost);\n".format(name, name, data_type, var_size)
       GPU_cpback_code.append(line)
     CPU_free_code.append("\tdelete[] {};\n".format(name))
     GPU_free_code.append("\tcudaFree(d_{});\n".format(name))
@@ -61,10 +64,22 @@ def generate_gpu_data_code(data_size_dict, data_type, file_name="default_kernel.
 def test_generate():
   # generate_gpu_data_code({"input": 1*12*386*64, "weight": 1*12*386*64, "output": 1*12*384*384, \
   #   "intermedia_output": 1*12*384*384, "ori_output": 1*12*384*384}, "half", output_names=["output", "intermedia_output", "ori_output"])
-  batch, num_heads, seq_length, dim = 64, 4, 64, 32
-  generate_gpu_data_code({"input": batch*num_heads*seq_length*dim, "weight": batch*num_heads*seq_length*dim, "output": batch*num_heads*seq_length*seq_length, \
-    "intermedia_output": batch*num_heads*seq_length*seq_length, "ori_output": batch*num_heads*seq_length*seq_length}, "half", output_names=["output", "intermedia_output", "ori_output"])
+  # batch, num_heads, seq_length, dim = 64, 4, 49, 32
+  # generate_gpu_data_code({"input": batch*num_heads*seq_length*dim, "weight": batch*num_heads*seq_length*dim, "output": batch*num_heads*seq_length*seq_length, \
+  #   "intermedia_output": batch*num_heads*seq_length*seq_length, "ori_output": batch*num_heads*seq_length*seq_length}, "half", output_names=["output", "intermedia_output", "ori_output"])
+  # For cudnn softmax
+  # batch, num_heads, seq_length, seq_length = 64, 4, 49, 49
+  # generate_gpu_data_code({"input": batch*num_heads*seq_length*seq_length, "output": batch*num_heads*seq_length*seq_length, }, 
+  #   "half", output_names=["output"])
+  # For swin-transformer query-key matmul
+  # batch, num_heads, seq_length, dim = 64, 4, 49, 32
+  # generate_gpu_data_code({"input": batch*num_heads*seq_length*dim, "weight": batch*num_heads*seq_length*dim, "output": batch*num_heads*seq_length*seq_length}, "half", output_names=["output"])
+  # Fork qkv matmul
+  # batch, height, width, channel = 64, 4, 49, 32
+  # generate_gpu_data_code({"input": batch*height*width*channel, "weight": 3*channel*channel, "output": batch*width*channel*3*channel}, "half", output_names=["output"])
 
+  batch, height, width, channel = 1, 16, 16, 512
+  generate_gpu_data_code({"input": batch*height*width*4*channel, "weight": 4*channel*channel, "output": batch*width*channel}, "half", output_names=["output"])
 
 if __name__=="__main__":
   test_generate()
