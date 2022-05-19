@@ -78,8 +78,11 @@ def test_generate():
   # batch, height, width, channel = 64, 4, 49, 32
   # generate_gpu_data_code({"input": batch*height*width*channel, "weight": 3*channel*channel, "output": batch*width*channel*3*channel}, "half", output_names=["output"])
 
-  batch, height, width, channel = 1, 16, 16, 512
-  generate_gpu_data_code({"input": batch*height*width*4*channel, "weight": 4*channel*channel, "output": batch*width*channel}, "half", output_names=["output"])
+  # batch, height, width, channel = 1, 16, 16, 512
+  # generate_gpu_data_code({"input": batch*height*width*4*channel, "weight": 4*channel*channel, "output": batch*width*channel}, "half", output_names=["output"])
+
+  M, N, K = 16, 16, 64
+  generate_gpu_data_code({"input":M*K, "weight": N*K, "output": M*N}, "float", output_names=["output"])
 
 if __name__=="__main__":
   test_generate()
