@@ -50,8 +50,9 @@ bool check(half* A, half *B){
   return equal;
 }
 
-#define FUNC gemm_spy_baseline<half><<<dim3(1, 1, 1), dim3(32, 1, 1)>>>(d_input, d_weight, d_output);
+// #define FUNC gemm_spy_baseline<half><<<dim3(1, 1, 1), dim3(32, 1, 1)>>>(d_input, d_weight, d_output);
 // #define FUNC gemm_spy_pipline<half><<<dim3(1, 1, 1), dim3(32, 1, 1)>>>(d_input, d_weight, d_output);
+#define FUNC gemm_spy_pipline_v2<half><<<dim3(1, 1, 1), dim3(32, 1, 1)>>>(d_input, d_weight, d_output);
 
 int main(){
 	const int input_size=1024;	half *input = new half[input_size];
