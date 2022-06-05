@@ -41,6 +41,7 @@ add_executable(fused_micro_operators_main ${EFFICIENT_NET_PATH}/fused_micro_oper
 add_executable(cudnn_infer_ops src/operator_fusion/transformer/cudnn_infer_ops.cu)
 add_executable(swin_transformer_mlp src/operator_fusion/transformer/swin_transformer_mlp_main.cu)
 add_executable(gemm_spy src/operator_fusion/transformer/gemm_spy.cu)
+add_executable(nerf src/operator_fusion/nerf/nerf.cu)
 
 # add_executable(fused_pointwise_pointwise_conv src/operator_fusion/efficientnet/fused_pointwise_pointwise_main.cu src/operator_fusion/efficientnet/pointwise_112_112_144_6.cu)
 # add_executable(fused_pointwise_pointwise_conv ${FUSE_SRC_FILES})
