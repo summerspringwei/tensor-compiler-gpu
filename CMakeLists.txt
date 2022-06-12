@@ -18,7 +18,10 @@ link_directories("/usr/local/cudnn-11.2/lib64")
 # endif()
 # set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-G;")
 
+SET(CUTLASS_HOME "/home2/xiachunwei/Software/cutlass/")
 include_directories("third_party/libnpy/include")
+include_directories("${CUTLASS_HOME}/include" "${CUTLASS_HOME}/tools/util/include/" "${CUTLASS_HOME}/examples/common/")
+link_directories("${CUTLASS_HOME}/build/tools/library")
 # add_compile_options(-fno-stack-protector)
 
 # add_executable(tmp src/learn_cuda/tmp.cu)
@@ -42,7 +45,10 @@ add_executable(cudnn_infer_ops src/operator_fusion/transformer/cudnn_infer_ops.c
 add_executable(swin_transformer_mlp src/operator_fusion/transformer/swin_transformer_mlp_main.cu)
 add_executable(gemm_spy src/operator_fusion/transformer/gemm_spy.cu)
 add_executable(nerf src/operator_fusion/nerf/nerf.cu)
+add_executable(tvm_nerf src/operator_fusion/nerf/tvm_nerf.cu)
+add_executable(cutlass_nerf src/operator_fusion/nerf/cutlass_nerf.cu)
 
+target_link_libraries(cutlass_nerf cutlass)
 # add_executable(fused_pointwise_pointwise_conv src/operator_fusion/efficientnet/fused_pointwise_pointwise_main.cu src/operator_fusion/efficientnet/pointwise_112_112_144_6.cu)
 # add_executable(fused_pointwise_pointwise_conv ${FUSE_SRC_FILES})
 # add_executable(tvmgen src/tvm_codegen/fused_matmul_main.cu src/tvm_codegen/block_fuse_d2l_matmul_kernel0 /tmp/mmult_kernel0.cu)
@@ -59,3 +65,4 @@ add_executable(swin_transformer_query_key_softmax_main src/operator_fusion/trans
 # set_target_properties(lstm_wavefront_magic PROPERTIES CUDA_ARCHITECTURES "70;75;80")
 target_link_libraries(cudnn_conv cudnn)
 target_link_libraries(cudnn_infer_ops cudnn cuda cublas)
+target_link_libraries(tvm_nerf cudnn cuda cublas)

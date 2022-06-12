@@ -8,6 +8,11 @@ int* p = a;
 int* q = b;
 *q++ = *p++;
 
-std::cout<<*p<<" "<<*q;
+// output 10, 5
+std::cout<<*p<<" "<<*q << std::endl;
+
+int t = 10 << 3;
+int tm = (unsigned int)10 & 0x7;
+std::cout<< t << " " << tm << std::endl;
 return 0;
 }

@@ -216,7 +216,7 @@ void bench_matmul(int m, int n, int k){
   checkCuda(cudaEventCreate(&stopEvent));
   int loop=10000;
   double min_latency = 1e9;
-  for(int a=0; a<3; ++a){
+  for(int a=0; a<10; ++a){
     auto t1 = std::chrono::steady_clock::now();
     float sum = 0;
     for(int i=0; i<loop; ++i){
@@ -278,6 +278,8 @@ void bench_FFN_fc2(int batch_size, int height, int width, int channel){
 }
 
 
+
+
 int main(){
   // bench_softmax();
   // bench_query_key();
@@ -285,13 +287,18 @@ int main(){
   // bench_qvk_matmul(1, 32, 32, 256);
   // bench_qvk_matmul(1, 16, 16, 512);
   // bench_qvk_matmul(1, 8, 8, 1024);
-  bench_FFN_fc1(1, 64, 64, 1280);
-  bench_FFN_fc1(1, 32, 32, 256);
-  bench_FFN_fc1(1, 16, 16, 512);
-  bench_FFN_fc1(1, 8, 8, 1024);
+  // bench_FFN_fc1(1, 64, 64, 1280);
+  // bench_FFN_fc1(1, 32, 32, 256);
+  // bench_FFN_fc1(1, 16, 16, 512);
+  // bench_FFN_fc1(1, 8, 8, 1024);
+  // For nerf model
+  bench_matmul<half>(108*4*16, 256, 256);
+  // bench_matmul<half>(65536, 256, 256);
   // bench_FFN_fc2(1, 64, 64, 128);
   // bench_FFN_fc2(1, 32, 32, 256);
   // bench_FFN_fc2(1, 16, 16, 512);
   // bench_FFN_fc2(1, 8, 8, 1024);
   return 0;
 }
+
+

@@ -261,10 +261,11 @@ ALL_LDFLAGS += $(ALL_CCFLAGS)
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 ALL_LDFLAGS += $(-lcudnn)
+ALL_LDFLAGS += $(-lcublas)
 
 # Common includes and paths for CUDA
 INCLUDES  := -I../../common/inc
-LIBRARIES := -L/usr/local/cudnn-11.2/lib64/ -lcudnn
+LIBRARIES := -L/usr/local/cudnn-11.2/lib64/ -L/usr/local/cuda/lib64/ -lcudnn -lcublas
 
 ################################################################################
 
@@ -298,7 +299,7 @@ endif
 # Target rules
 all: build
 
-build: nerf
+build: nerf tvm_nerf
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -310,16 +311,22 @@ endif
 nerf.o:nerf.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
+tvm_nerf.o:tvm_nerf.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
 nerf: nerf.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
+tvm_nerf: tvm_nerf.o
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
-	$(EXEC) ./nerf
+	$(EXEC) ./nerf 
+	$(EXEC) ./tvm_nerf 
 
 
 clean:
 	rm -f nerf nerf.o
+	rm -f tvm_nerf tvm_nerf.o
 
 clobber: clean
