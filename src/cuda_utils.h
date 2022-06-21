@@ -21,7 +21,8 @@ cudaError_t checkCuda(cudaError_t result)
 __inline__ __device__
 half warpReduceSum(half val) {
   for (int offset = warpSize/2; offset > 0; offset /= 2)
-    val += __shfl_down_sync(0xffffffff, val, offset);
+    val = __hadd(val, __shfl_down_sync(0xffffffff, val, offset));
+    // val += __shfl_down_sync(0xffffffff, val, offset);
   return val;
 }
 

@@ -88,11 +88,11 @@ int main(){
   void *kernel_args1[] = { (void *)&(d_input), (void *)&(d_weight1), (void *)&(d_output_tmp) };
 	void *kernel_args2[] = { (void *)&(d_output_tmp), (void *)&(d_weight2), (void *)&(d_output_cmp) };
 	void *fused_kernel_args[] = { (void *)&(d_input), (void *)&(d_weight1), (void *)&(d_weight2), (void *)&(d_output) };
-	FUNC1
-	FUNC2
-	FUSED_FUNC
-	// cudnn_matmul_wrapper<half, cublasOperation_t::CUBLAS_OP_T, cublasOperation_t::CUBLAS_OP_N>(d_input, d_weight1, d_output_tmp, m, n, k);
-	// cudnn_matmul_wrapper<half, cublasOperation_t::CUBLAS_OP_T, cublasOperation_t::CUBLAS_OP_N>(d_output_tmp, d_weight2, d_output_cmp, m, n, k);
+	// FUNC1
+	// FUNC2
+	// FUSED_FUNC
+	cudnn_matmul_wrapper<half, cublasOperation_t::CUBLAS_OP_T, cublasOperation_t::CUBLAS_OP_N>(d_input, d_weight1, d_output_tmp, m, n, k);
+	cudnn_matmul_wrapper<half, cublasOperation_t::CUBLAS_OP_T, cublasOperation_t::CUBLAS_OP_N>(d_output_tmp, d_weight2, d_output_cmp, m, n, k);
 	cudaDeviceSynchronize();
 	cudaMemcpy(output, d_output, sizeof(half)*output_size, cudaMemcpyDeviceToHost);
 	cudaMemcpy(output_cmp, d_output_cmp, sizeof(half)*output_size, cudaMemcpyDeviceToHost);
@@ -101,7 +101,7 @@ int main(){
   // Compare results
 	int error_cnt = 0;
 	for(int i=0; i<m*n; ++i){
-		if( __half2float(output[i]) != __half2float(output_cmp[i])){
+		if( abs(__half2float(output[i]) - __half2float(output_cmp[i])) > ((__half2float(output[i]) + __half2float(output_cmp[i])) / 1000)){
 			// printf("(%d, %d): %f\n", i/256, i%256, __half2float(output[i]));
 			printf("(%d, %d): ours: %f, cudnn: %f\n", i/256, i%256, __half2float(output[i]), __half2float(output_cmp[i]));
 			error_cnt++;

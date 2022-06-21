@@ -38,8 +38,8 @@ void hf_init_values(T* input, std::vector<int> shape, T value, int mod=0){
   if(shape.size()==1){
     for(int i=0; i<shape[0]; ++i){
       if(mod==0){
-        // input[i] = value;
-        input[i] = __float2half(((float)(i % 50)) / 100);
+        input[i] = value;
+        // input[i] = __float2half(((float)(i % 20)) / 100);
       }else{
         input[i] = __float2half((float)(rand() % 20) / 100);
       }

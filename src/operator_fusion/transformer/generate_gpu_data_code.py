@@ -84,10 +84,13 @@ def test_generate():
   # M, N, K = 16, 16, 64
   # generate_gpu_data_code({"input":M*K, "weight": N*K, "output": M*N}, "float", output_names=["output"])
   # 16 * 256 * 4 = 16K * 108 * 4
-  chunk, hidden_size = 65536, 256
-  generate_gpu_data_code({"input": chunk*hidden_size, "weight1": hidden_size * hidden_size, 
-    "weight2": hidden_size * hidden_size, "weight3": hidden_size * hidden_size, 
-    "weight4": hidden_size * hidden_size, "output": chunk*hidden_size}, "half", output_names=["output"])
+  # chunk, hidden_size = 65536, 256
+  # generate_gpu_data_code({"input": chunk*hidden_size, "weight1": hidden_size * hidden_size, 
+  #   "weight2": hidden_size * hidden_size, "weight3": hidden_size * hidden_size, 
+  #   "weight4": hidden_size * hidden_size, "output": chunk*hidden_size}, "half", output_names=["output"])
+  num_head, seq_length, hidden_size_per_head = 12, 128, 64
+  generate_gpu_data_code({"qeury": num_head * seq_length * hidden_size_per_head, "key": num_head * seq_length * hidden_size_per_head, 
+    "output": num_head * seq_length * seq_length, "sum": num_head * seq_length}, "half", output_names=["output", "sum"])
 
 if __name__=="__main__":
   test_generate()
