@@ -18,7 +18,7 @@
 
 #include <torch/extension.h>
 
-// #include "bert_fused_fc_fc.h"
+#include "bert_fused_fc_fc.h"
 #include "bert_query_key_matmul_softmax.h"
 
 torch::Tensor d_sigmoid(torch::Tensor z) {
@@ -29,7 +29,7 @@ torch::Tensor d_sigmoid(torch::Tensor z) {
 #define CHECK_CUDA(x) TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")
 
 
-void check_compatability(int numThreads, (void*)cuda_kernel){
+void check_compatability(int numThreads, void* cuda_kernel){
   int dev = 0;
   int supportsCoopLaunch = 0;
   cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, dev);
@@ -77,35 +77,40 @@ torch::Tensor fused_query_key_matmul_softmax(torch::Tensor query, torch::Tensor 
 }
 
 template<int64_t batch_size, int64_t num_heads, int64_t max_seq_length, int64_t hidden_size, int64_t dim_feedforward>
-torch::Tensor fused_feed_forward(torch::Tensor src, torch::Tensor weight1, torch::Tensor weight2){
+std::vector<torch::Tensor> fused_feed_forward(torch::Tensor src, torch::Tensor weight1, torch::Tensor weight2){
   // Check input
   CHECK_CUDA(src);
   CHECK_CUDA(weight1);
   CHECK_CUDA(weight2);
-  assert(src.size(0)==batch_size*max_seq_length && src.size(1)==hidden_size);
-  assert(weight1.size(0)==dim_feedforward && src.size(1)==hidden_size);
-  assert(weight2.size(0)==hidden_size && src.size(1)==dim_feedforward);
+  assert(src.size(0)==batch_size*max_seq_length && src.size(1)==num_heads*hidden_size);
+  assert(weight1.size(0)==dim_feedforward && weight1.size(1)==num_heads*hidden_size);
+  assert(weight2.size(0)==num_heads*hidden_size && weight2.size(1)==dim_feedforward);
 
   check_compatability(128, (void*)fused_fc_fc_v2);
   // Create outputs
-  auto options = torch::TensorOptions()
+  auto options_fp16 = torch::TensorOptions()
     .dtype(torch::kFloat16)
     .layout(torch::kStrided)
     .device(torch::kCUDA, 0)
     .requires_grad(false);
-  auto output1 = torch::zeros({batch_size*max_seq_length, dim_feedforward}, options);
-  auto output2 = torch::zeros({batch_size*max_seq_length, num_heads*hidden_size}, options);
-  auto sum = torch::zeros({batch_size*max_seq_length,}, options);
-  auto variance = torch::zeros({batch_size*max_seq_length,}, options);
+  auto output1 = torch::zeros({batch_size*max_seq_length, dim_feedforward}, options_fp16);
+  auto output2 = torch::zeros({batch_size*max_seq_length, num_heads*hidden_size}, options_fp16);
+  auto options_fp32 = torch::TensorOptions()
+    .dtype(torch::kFloat32)
+    .layout(torch::kStrided)
+    .device(torch::kCUDA, 0)
+    .requires_grad(false);
+  auto sum = torch::zeros({batch_size*max_seq_length,}, options_fp32);
+  auto variance = torch::zeros({batch_size*max_seq_length,}, options_fp32);
 
   at::Half* ptr_src = src.data<at::Half>();
   at::Half* ptr_weight1 = weight1.data<at::Half>();
   at::Half* ptr_output1 = output1.data<at::Half>();
   at::Half* ptr_weight2 = weight2.data<at::Half>();
   at::Half* ptr_output2 = output2.data<at::Half>();
-  at::Half* ptr_sum = sum.data<at::Half>();
-  at::Half* ptr_variance = variance.data<at::Half>();
-  half eps = 0.00001, gama=0, beta=0;
+  float* ptr_sum = sum.data<float>();
+  float* ptr_variance = variance.data<float>();
+  half eps = 0.00001, gama=1, beta=0;
   // fused_fc_fc_v2(half *__restrict__ x, half *__restrict__ placeholder,
   //               half *__restrict__ T_dense, half *__restrict__ placeholder2,
   //               half *__restrict__ T_dense2, half* sum, half* variance, half eps, half gama, half beta) 
@@ -113,13 +118,13 @@ torch::Tensor fused_feed_forward(torch::Tensor src, torch::Tensor weight1, torch
 
   void *fused_kernel_args[] = { (void *)&(ptr_src), (void *)&(ptr_weight1), 
     (void *)&(ptr_output1), (void *)&(ptr_weight2), (void *)&(ptr_output2), 
-    (void *)&(ptr_sum), (void *)&(ptr_variance), eps, gama, beta};
+    (void *)&(ptr_sum), (void *)&(ptr_variance), (void*)&eps, (void*)&gama, (void*)&beta};
   
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(output.type(), "fused_feed_forward", [&]{
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(output2.type(), "fused_feed_forward", [&]{
     checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v2, dim3(192, 1, 1), dim3(128, 1, 1), fused_kernel_args, 13056 * sizeof(half)));
   });
   
-  return output2;
+  return {output2, sum, variance};
 }
 
 

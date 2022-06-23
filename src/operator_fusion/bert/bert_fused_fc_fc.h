@@ -265,7 +265,7 @@ extern "C" __global__ void __launch_bounds__(128)
 extern "C" __global__ void __launch_bounds__(128)
     fused_fc_fc_v2(half *__restrict__ x, half *__restrict__ placeholder,
                 half *__restrict__ T_dense, half *__restrict__ placeholder2,
-                half *__restrict__ T_dense2, half* sum, half* variance, half eps, half gama, half beta) {
+                half *__restrict__ T_dense2, float* sum, float* variance, half eps, half gama, half beta) {
   extern half __shared__ shared_buff_fused[]; 
   half* x_shared = (half*)&shared_buff_fused[0]; // 8706=64*136
   half* placeholder_shared = (half*)&shared_buff_fused[8704];// 4352=32*136
@@ -559,49 +559,98 @@ extern "C" __global__ void __launch_bounds__(128)
     for(int i=0; i<add_num_iter; ++i){
       int row = (i << 2) + (threadIdx.x >> 5); // row = threadIdx.x / 32; each block process 128/32=4 rows
       int col = threadIdx.x & 0x1f;//col = threadIdx.x % 32;
-      int offset = row * 40 + col;
+      int offset = row * x_shared_row_stride + col;
       x_shared[offset] = x_shared[offset] + placeholder_shared[offset];
     }
     __syncthreads();
+
     // Do self.norm(src)
-    // compute sum
-    #pragma unroll
+    // 1. compute sum
     if(threadIdx.x < 32){
-      // Compute average
-      half reduce_sum = 0;
+      float reduce_sum = 0;
+      #pragma unroll
       for(int i=0; i<32; ++i){
-        reduce_sum += x_shared[threadIdx.x * x_shared_row_stride + i];
+        reduce_sum += __half2float(x_shared[threadIdx.x * x_shared_row_stride + i]);
       }
-      atomicAdd(sum + blockIdx_x * 32 + threadIdx.x, reduce_sum);
+      atomicAdd(sum + blockIdx_x * 32 + threadIdx.x, reduce_sum / 768);
     }
+    // 1. compute sum, reduce between threads
+    // half reduce_sum[add_num_iter];
+    // #pragma unroll
+    // for(int i=0; i<add_num_iter; ++i){
+    //   reduce_sum[i] = half(0);
+    //   int row = (i << 2) + (threadIdx.x >> 5); // row = threadIdx.x / 32; each block process 128/32=4 rows
+    //   int col = threadIdx.x & 0x1f;//col = threadIdx.x % 32;
+    //   int offset = row * x_shared_row_stride + col;
+    //   auto ele = x_shared[offset];
+    //   reduce_sum[i] = warpReduceSum(ele);
+    //   if(threadIdx.x==0){
+    //     atomicAdd(sum + blockIdx_x * 32 + row, reduce_sum[i]);
+    //   }
+    //   __syncthreads();
+    // }
     __syncthreads();
     __threadfence();
-    grid.sync();
+  }
+  grid.sync();
+  if(blockIdx.x < 96){
+    const int blockIdx_x = blockIdx.x % 4;
+    const int blockIdx_y = blockIdx.x / 4;
+    const int threadIdx_x = threadIdx.x % 32;
+    const int threadIdx_y = threadIdx.x / 32;
+    const int x_shared_row_stride = 40;
+    const int add_num_iter = 32 * 32 / 128;
+    
     // Compute variance
     if(threadIdx.x < 32){
-      sum[blockIdx_x * 32 + threadIdx.x] = sum[blockIdx_x * 32 + threadIdx.x] / half(768);
-      half avg = sum[blockIdx_x * 32 + threadIdx.x];
+      half avg = __float2half(sum[blockIdx_x * 32 + threadIdx.x]);
       // Compute variace
-      half reduce_sum = 0;
+      float reduce_sum = 0;
+      #pragma unroll
       for(int i=0; i<32; ++i){
-        half delt = (x_shared[threadIdx.x * x_shared_row_stride + i] - avg);
-        reduce_sum += delt;
+        float delt = __half2float(x_shared[threadIdx.x * x_shared_row_stride + i] - avg);
+        reduce_sum += (delt * delt);
       }
-      atomicAdd(variance + blockIdx_x * 32 + threadIdx.x, reduce_sum);
+      atomicAdd(variance + blockIdx_x * 32 + threadIdx.x, reduce_sum / 768);
     }
+    
+    // half reduce_sum[add_num_iter];
+    // #pragma unroll
+    // for(int i=0; i<add_num_iter; ++i){
+    //   reduce_sum[i] = half(0); // Save variance reduce sum in a 
+    //   int row = (i << 2) + (threadIdx.x >> 5); // row = threadIdx.x / 32; each block process 128/32=4 rows
+    //   int col = threadIdx.x & 0x1f;//col = threadIdx.x % 32;
+    //   int offset = row * x_shared_row_stride + col;
+    //   int g_row = blockIdx_x * 32 + row;
+    //   sum[g_row] = sum[g_row] / half(768); // Do average here
+    //   auto ele = (x_shared[offset]-sum[g_row]) * (x_shared[offset]-sum[g_row]);
+    //   reduce_sum[i] = warpReduceSum(ele);
+    //   if(threadIdx.x==0){
+    //     atomicAdd(variance + g_row, reduce_sum[i]);
+    //   }
+    //   __syncthreads();
+    // }
     __syncthreads();
     __threadfence();
-    grid.sync();
-    // Compute normalize
+  }
+  grid.sync();
+  if(blockIdx.x < 96){
+    const int blockIdx_x = blockIdx.x % 4;
+    const int blockIdx_y = blockIdx.x / 4;
+    const int threadIdx_x = threadIdx.x % 32;
+    const int threadIdx_y = threadIdx.x / 32;
+    __threadfence();
+    __syncthreads();
+    const int add_num_iter = 32 * 32 / 128;
     #pragma unroll
     for(int i=0; i<add_num_iter; ++i){
       int row = (i << 2) + (threadIdx.x >> 5); // row = threadIdx.x / 32; each block process 128/32=4 rows
       int g_row = blockIdx_x * 32 + row;
-      half avg = sum[g_row];
-      half revers_vairance = half(1) / hsqrt(variance[g_row] + eps);
-      int col = threadIdx.x & 0x1f;//col = threadIdx.x % 32;
+      half avg = __float2half(sum[g_row]);
+      half reciprocal_vairance = half(1) / __float2half(sqrt(variance[g_row] + __half2float(eps)));
+      int col = threadIdx.x & 0x1f; //col = threadIdx.x % 32;
       int offset = row * 40 + col;
-      x_shared[offset] = (x_shared[offset] - avg) * revers_vairance * gama + beta;
+      x_shared[offset] = (x_shared[offset] - avg) * reciprocal_vairance * gama + beta;
     }
     __syncthreads();
 
