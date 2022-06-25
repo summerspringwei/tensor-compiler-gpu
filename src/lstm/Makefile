@@ -358,7 +358,7 @@ endif
 # Target rules
 all: build
 
-build: seq2seq lstm_main
+build: seq2seq.out lstm_main.out
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -376,19 +376,19 @@ seq2seq: seq2seq.o
 	$(EXEC) cp $@ ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 
 run: build
-	$(EXEC) ./seq2seq
+	$(EXEC) ./seq2seq.out
 
 clean:
-	rm -f seq2seq seq2seq.o lstm_main lstm_main.o
+	rm -f seq2seq.out seq2seq.o lstm_main lstm_main.o
 	rm -rf ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/seq2seq ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/lstm_main
 
 lstm_main.o:lstm_main.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-lstm_main: lstm_main.o
+lstm_main.out: lstm_main.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 	$(EXEC) mkdir -p ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 	$(EXEC) cp $@ ./bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
 
 run: build
-	$(EXEC) ./lstm_main
+	$(EXEC) ./lstm_main.out

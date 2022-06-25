@@ -71,6 +71,55 @@ def test_fused_feedforward():
   np.testing.assert_allclose(output.cpu().numpy(), src.cpu().numpy(), rtol=0.1)
 
 
+def test_fused_attn_qkv_matmul_transpose():
+  # src = torch.ones((128, 768), dtype=torch.half, device="cuda") / 16
+  # weight_qkv = torch.ones((768*3, 768), dtype=torch.half, device="cuda") / 16
+  src = torch.rand((128, 768), dtype=torch.half, device="cuda") / 16
+  weight_qkv = torch.rand((768*3, 768), dtype=torch.half, device="cuda") / 16
+  output_qkv, query, key, value =  bert_binding.fused_attn_qkv_matmul_transpose(src, weight_qkv)
+  t_output_qkv = torch.matmul(src, weight_qkv.transpose(-2, -1))
+  # t_output_qkv = src @ weight_qkv.transpose(-2, -1)
+  # print(torch.split(t_output_qkv, 3, 1))
+  t_query, t_key, t_value = torch.split(t_output_qkv, 768, 1)
+  t_query = torch.reshape(t_query, (128, 12, 64))
+  t_key = torch.reshape(t_key, (128, 12, 64))
+  t_value = torch.reshape(t_value, (128, 12, 64))
+  t_query = torch.permute(t_query, (1, 0, 2)) # Now 12, 128, 64
+  t_key = torch.permute(t_key, (1, 0, 2)) # Now 12, 128, 64
+  t_value = torch.permute(t_value, (1, 2, 0)) # Now  12, 64, 128
+  
+
+  # error_cnt = 0
+  # for i in range(128):
+  #   for j in range(768*3):
+  #     a = output_qkv.cpu().numpy()[i, j]
+  #     b = t_output_qkv.cpu().numpy()[i, j]
+  #     if(a != b):
+  #       print(i, j, a, b)
+  #       error_cnt += 1
+  #       if error_cnt > 100:
+  #         exit(0)
+  
+  print(output_qkv.shape)
+  print(t_output_qkv.shape)
+  # Expect same device
+  
+  np.savetxt("output_qkv.csv",  output_qkv.cpu().numpy(), fmt="%.3f", delimiter=',')
+  np.savetxt("t_output_qkv.csv", t_output_qkv.cpu().numpy(),  fmt="%.3f", delimiter=',')
+  print(query.shape)
+  print(t_query.shape)
+  torch.testing.assert_allclose(output_qkv, t_output_qkv, rtol=0.05, atol=0)
+  np.savetxt("query.csv",  torch.reshape(query, (12, 128*64)).cpu().numpy(), fmt="%.3f", delimiter=',')
+  np.savetxt("t_query.csv", torch.reshape(t_query, (12, 128*64)).cpu().numpy(),  fmt="%.3f", delimiter=',')
+  
+  torch.testing.assert_allclose(query, t_query, rtol=0.05, atol=0)
+  torch.testing.assert_allclose(key, t_key, rtol=0.05, atol=0)
+  torch.testing.assert_allclose(value, t_value, rtol=0.05, atol=0)
+
+  print(bert_binding.benchmark_fused_attn_qkv_matmul_transpose(src, weight_qkv, 3, 10000))
+
+
 if __name__=="__main__":
   # test_fused_query_key_matmul_softmax()
-  test_fused_feedforward()
+  # test_fused_feedforward()
+  test_fused_attn_qkv_matmul_transpose()

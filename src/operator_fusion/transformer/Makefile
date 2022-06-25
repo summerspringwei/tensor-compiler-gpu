@@ -298,7 +298,7 @@ endif
 # Target rules
 all: build
 
-build: swin_transformer_query_key_softmax_main transformer_query_key_softmax_main swin_transformer_mlp_main gemm_spy nerf
+build: swin_transformer_query_key_softmax_main.out transformer_query_key_softmax_main.out swin_transformer_mlp_main gemm_spy.out nerf.out
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -318,28 +318,28 @@ swin_transformer_mlp_main.o:swin_transformer_mlp_main.cu
 gemm_spy.o:gemm_spy.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-swin_transformer_query_key_softmax_main: swin_transformer_query_key_softmax_main.o
+swin_transformer_query_key_softmax_main.out: swin_transformer_query_key_softmax_main.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-transformer_query_key_softmax_main: transformer_query_key_softmax_main.o
+transformer_query_key_softmax_main.out: transformer_query_key_softmax_main.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-cudnn_infer_ops: cudnn_infer_ops.o
+cudnn_infer_ops.out: cudnn_infer_ops.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-swin_transformer_mlp_main: swin_transformer_mlp_main.o
+swin_transformer_mlp_main.out: swin_transformer_mlp_main.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-gemm_spy: gemm_spy.o
+gemm_spy.out: gemm_spy.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
-	$(EXEC) ./swin_transformer_query_key_softmax_main
-	$(EXEC) ./transformer_query_key_softmax_main
-	$(EXEC) ./cudnn_infer_ops
-	$(EXEC) ./swin_transformer_mlp_main
-	$(EXEC) ./gemm_spy
+	$(EXEC) ./swin_transformer_query_key_softmax_main.out
+	$(EXEC) ./transformer_query_key_softmax_main.out
+	$(EXEC) ./cudnn_infer_ops.out
+	$(EXEC) ./swin_transformer_mlp_main.out
+	$(EXEC) ./gemm_spy.out
 
 clean:
-	rm -f swin_transformer_query_key_softmax_main swin_transformer_query_key_softmax_main.o
-	rm -f transformer_query_key_softmax_main transformer_query_key_softmax_main.o
-	rm -f cudnn_infer_ops cudnn_infer_ops.o
-	rm -f swin_transformer_mlp_main swin_transformer_mlp_main.o
-	rm -f gemm_spy gemm_spy.o
+	rm -f swin_transformer_query_key_softmax_main.out swin_transformer_query_key_softmax_main.o
+	rm -f transformer_query_key_softmax_main.out transformer_query_key_softmax_main.o
+	rm -f cudnn_infer_ops.out cudnn_infer_ops.o
+	rm -f swin_transformer_mlp_main.out swin_transformer_mlp_main.o
+	rm -f gemm_spy.out gemm_spy.o
 clobber: clean

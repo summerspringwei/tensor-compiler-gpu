@@ -39,11 +39,11 @@ CUDA_PATH ?= /usr/local/cuda-11.6
 ##############################
 # start deprecated interface #
 ##############################
-ifeq ($(x86_64),1)
-    $(info WARNING - x86_64 variable has been deprecated)
-    $(info WARNING - please use TARGET_ARCH=x86_64 instead)
-    TARGET_ARCH ?= x86_64
-endif
+# ifeq ($(x86_64),1)
+#     $(info WARNING - x86_64 variable has been deprecated)
+#     $(info WARNING - please use TARGET_ARCH=x86_64 instead)
+#     TARGET_ARCH ?= x86_64
+# endif
 ifeq ($(ARMv7),1)
     $(info WARNING - ARMv7 variable has been deprecated)
     $(info WARNING - please use TARGET_ARCH=armv7l instead)
@@ -299,7 +299,7 @@ endif
 # Target rules
 all: build
 
-build: bert_feed_forward bert_query_key
+build: bert_feed_forward.out bert_query_key.out bert_attn_qkv_transpose.out
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -314,19 +314,28 @@ bert_feed_forward.o:bert_feed_forward.cu
 bert_query_key.o:bert_query_key.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-bert_feed_forward: bert_feed_forward.o
+bert_attn_qkv_transpose.o:bert_attn_qkv_transpose.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+
+
+bert_feed_forward.out: bert_feed_forward.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
-bert_query_key: bert_query_key.o
+bert_query_key.out: bert_query_key.o
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+
+bert_attn_qkv_transpose.out: bert_attn_qkv_transpose.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
-	$(EXEC) ./bert_feed_forward 
-	$(EXEC) ./bert_query_key 
+	$(EXEC) ./bert_feed_forward.out
+	$(EXEC) ./bert_query_key.out
+	$(EXEC) ./bert_attn_qkv_transpose.out
 
 
 clean:
-	rm -f bert_feed_forward bert_feed_forward.o
-	rm -f bert_query_key bert_query_key.o
+	rm -f bert_feed_forward.out bert_feed_forward.o
+	rm -f bert_query_key.out bert_query_key.o
+	rm -f bert_attn_qkv_transpose.out bert_attn_qkv_transpose.o
 
 clobber: clean

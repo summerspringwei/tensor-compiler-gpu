@@ -11,9 +11,9 @@
 #include "../../utils.h"
 #include "../transformer/half.hpp"
 
-#include "bert_feed_forward_fc1.h"
-#include "bert_feed_forward_fc2.h"
-#include "bert_fused_fc_fc.h"
+#include "kernels/bert_feed_forward_fc1.h"
+#include "kernels/bert_feed_forward_fc2.h"
+#include "kernels/bert_fused_fc_fc.h"
 
 // Two fc configuration
 int m1 = 128, n1 = 3072, k1 = 768;
@@ -112,7 +112,7 @@ int main() {
 
   init_values(input, weight1, weight2, output1);
 
-  cpu_fused_bert_feed_forward(input, weight1, output_tmp, weight2, sum_cmp, variance_cmp, output_cmp);
+  // cpu_fused_bert_feed_forward(input, weight1, output_tmp, weight2, sum_cmp, variance_cmp, output_cmp);
   int dev = 0;
   int supportsCoopLaunch = 0;
   cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch,
@@ -207,42 +207,42 @@ int main() {
   // i%n1, __half2float(output1[i]), __half2float(output_tmp[i]));
   // 	}
   // }printf("\n");
-  for (int i = 0; i < m1; ++i) {
-    if (abs(__half2float(sum[i]) - half_float::half(sum_cmp[i])) >
-            ((__half2float(sum[i]) + half_float::half(sum_cmp[i])) / 1000)){  
-      printf("sum: (%d, %d): ours: %f, tvm: %f\n", i / n2, i % n2,
-             __half2float(sum[i]), half_float::half(sum_cmp[i]));
-      error_cnt++;
-      if (error_cnt > error_cnt_threshold) {
-        break;
-      }
-    }
-  }
+  // for (int i = 0; i < m1; ++i) {
+  //   if (abs(__half2float(sum[i]) - half_float::half(sum_cmp[i])) >
+  //           ((__half2float(sum[i]) + half_float::half(sum_cmp[i])) / 1000)){  
+  //     printf("sum: (%d, %d): ours: %f, tvm: %f\n", i / n2, i % n2,
+  //            __half2float(sum[i]), half_float::half(sum_cmp[i]));
+  //     error_cnt++;
+  //     if (error_cnt > error_cnt_threshold) {
+  //       break;
+  //     }
+  //   }
+  // }
 
-  for (int i = 0; i < m1; ++i) {
-    if (abs(__half2float(variance[i]) - __half2float(variance_cmp[i])) >
-            ((__half2float(variance[i]) + __half2float(variance_cmp[i])) / 1000)){  
-      printf("variance: (%d, %d): ours: %f, tvm: %f\n", i / n2, i % n2,
-             __half2float(variance[i]), __half2float(variance_cmp[i]));
-      error_cnt++;
-      if (error_cnt > error_cnt_threshold) {
-        break;
-      }
-    }
-  }
-  for (int i = 0; i < m2 * n2; ++i) {
-    if (abs(__half2float(output2[i]) - __half2float(output_cmp[i])) >
-            ((__half2float(output2[i]) + __half2float(output_cmp[i])) / 1000)) {
-      printf("output2: (%d, %d): ours: %f, tvm: %f\n", i / n2, i % n2,
-             __half2float(output2[i]), __half2float(output_cmp[i]));
-      error_cnt++;
-      if (error_cnt > error_cnt_threshold) {
-        break;
-      }
-    }
-  }
-  printf("\n");
-  printf("error_cnd: %d\n", error_cnt);
+  // for (int i = 0; i < m1; ++i) {
+  //   if (abs(__half2float(variance[i]) - __half2float(variance_cmp[i])) >
+  //           ((__half2float(variance[i]) + __half2float(variance_cmp[i])) / 1000)){  
+  //     printf("variance: (%d, %d): ours: %f, tvm: %f\n", i / n2, i % n2,
+  //            __half2float(variance[i]), __half2float(variance_cmp[i]));
+  //     error_cnt++;
+  //     if (error_cnt > error_cnt_threshold) {
+  //       break;
+  //     }
+  //   }
+  // }
+  // for (int i = 0; i < m2 * n2; ++i) {
+  //   if (abs(__half2float(output2[i]) - __half2float(output_cmp[i])) >
+  //           ((__half2float(output2[i]) + __half2float(output_cmp[i])) / 1000)) {
+  //     printf("output2: (%d, %d): ours: %f, tvm: %f\n", i / n2, i % n2,
+  //            __half2float(output2[i]), __half2float(output_cmp[i]));
+  //     error_cnt++;
+  //     if (error_cnt > error_cnt_threshold) {
+  //       break;
+  //     }
+  //   }
+  // }
+  // printf("\n");
+  // printf("error_cnd: %d\n", error_cnt);
 
   if (err != cudaSuccess) {
     fprintf(stderr, "Failed to allocate device vector d_a (error code %s)!\n",
@@ -253,7 +253,7 @@ int main() {
   cudaEvent_t startEvent, stopEvent;
   checkCuda(cudaEventCreate(&startEvent));
   checkCuda(cudaEventCreate(&stopEvent));
-  const int round_cout = 0, loop = 10000;
+  const int round_cout = 3, loop = 10000;
   float ms = 0, latency_sum = 0;
   // 1. For original pointwise conv
   for (int round = 0; round < round_cout; ++round) {

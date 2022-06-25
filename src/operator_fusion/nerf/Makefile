@@ -299,7 +299,7 @@ endif
 # Target rules
 all: build
 
-build: nerf tvm_nerf
+build: nerf.out tvm_nerf.out
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -314,19 +314,19 @@ nerf.o:nerf.cu
 tvm_nerf.o:tvm_nerf.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-nerf: nerf.o
+nerf.out: nerf.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
-tvm_nerf: tvm_nerf.o
+tvm_nerf.out: tvm_nerf.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
-	$(EXEC) ./nerf 
-	$(EXEC) ./tvm_nerf 
+	$(EXEC) ./nerf.out
+	$(EXEC) ./tvm_nerf.out
 
 
 clean:
-	rm -f nerf nerf.o
-	rm -f tvm_nerf tvm_nerf.o
+	rm -f nerf.out nerf.o
+	rm -f tvm_nerf.out tvm_nerf.o
 
 clobber: clean

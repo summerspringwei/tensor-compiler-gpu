@@ -4,7 +4,7 @@
 #include <cuda_fp16.hpp>
 #include <mma.h>
 
-#include "../../cuda_utils.h"
+#include "../../../cuda_utils.h"
 
 // dim3(4, 4,12), dim3(32,1,1)
 // Note we set blockDim.y to 8 to compute softmax 

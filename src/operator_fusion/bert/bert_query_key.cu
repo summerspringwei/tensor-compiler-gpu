@@ -9,7 +9,7 @@
 #include "../../utils.h"
 #include "../../cuda_utils.h"
 
-#include "bert_query_key_matmul_softmax.h"
+#include "kernels/bert_query_key_matmul_softmax.h"
 
 // #define FUSED_FUNC checkCuda(cudaLaunchCooperativeKernel((void*)fused_query_key_matmul_softmax, dim3(4, 4,12), dim3(32,1,1), kernel_args, 8704*sizeof(half)));
 // #define FUSED_FUNC checkCuda(cudaLaunchCooperativeKernel((void*)fused_query_key_matmul_softmax_v2, dim3(4, 4,12), dim3(32,8,1), kernel_args, 8704*sizeof(half)));

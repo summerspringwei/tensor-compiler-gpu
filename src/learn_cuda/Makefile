@@ -297,7 +297,7 @@ endif
 # Target rules
 all: build
 
-build: opt_matmul_tensorcore
+build: opt_matmul_tensorcore.out
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -313,9 +313,9 @@ opt_matmul_tensorcore: opt_matmul_tensorcore.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
-	$(EXEC) ./opt_matmul_tensorcore
+	$(EXEC) ./opt_matmul_tensorcore.out
 
 clean:
-	rm -f opt_matmul_tensorcore opt_matmul_tensorcore.o
+	rm -f opt_matmul_tensorcore.out opt_matmul_tensorcore.o
 
 clobber: clean

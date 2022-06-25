@@ -18,8 +18,11 @@
 
 #include <torch/extension.h>
 
-#include "bert_fused_fc_fc.h"
-#include "bert_query_key_matmul_softmax.h"
+#include "kernels/bert_fused_fc_fc.h"
+#include "kernels/bert_query_key_matmul_softmax.h"
+#include "kernels/bert_qkv.h"
+#include "kernels/bert_qkv_matmul_transpose.h"
+
 
 torch::Tensor d_sigmoid(torch::Tensor z) {
   auto s = torch::sigmoid(z);
@@ -128,10 +131,112 @@ std::vector<torch::Tensor> fused_feed_forward(torch::Tensor src, torch::Tensor w
 }
 
 
+template<int64_t batch_size, int64_t num_heads, int64_t max_seq_length, int64_t hidden_size>
+std::vector<torch::Tensor> fused_attn_qkv_matmul_transpose(torch::Tensor src, torch::Tensor weight_qkv){
+  // Check input
+  CHECK_CUDA(src);
+  CHECK_CUDA(weight_qkv);
+  assert(src.size(0)==batch_size*max_seq_length && src.size(1)==num_heads*hidden_size);
+  assert(weight_qkv.size(0)==num_heads*hidden_size*3 && weight_qkv.size(1)==num_heads*hidden_size);
+  check_compatability(64, (void*)fused_attn_qkv_matmul_transpose_kernel_v2);
+
+  auto options_fp16 = torch::TensorOptions()
+    .dtype(torch::kFloat16)
+    .layout(torch::kStrided)
+    .device(torch::kCUDA, 0)
+    .requires_grad(false);
+  
+  auto output_qkv = torch::zeros({batch_size*max_seq_length, num_heads*hidden_size*3}, options_fp16);
+  auto query = torch::zeros({batch_size*num_heads, max_seq_length, hidden_size}, options_fp16);
+  auto key = torch::zeros({batch_size*num_heads, max_seq_length, hidden_size}, options_fp16);
+  auto value = torch::zeros({batch_size*num_heads, hidden_size, max_seq_length}, options_fp16);
+
+  at::Half* ptr_src = src.data<at::Half>();
+  at::Half* ptr_weight_qkv = weight_qkv.data<at::Half>();
+  at::Half* ptr_output_qkv = output_qkv.data<at::Half>();
+  at::Half* ptr_query = query.data<at::Half>();
+  at::Half* ptr_key = key.data<at::Half>();
+  at::Half* ptr_value = value.data<at::Half>();
+
+  void *fused_kernel_args[] = { (void *)&(ptr_src), (void *)&(ptr_weight_qkv), 
+    (void *)&(ptr_output_qkv), (void *)&(ptr_query), (void *)&(ptr_key), (void *)&(ptr_value)};
+  
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_attn_qkv_matmul_transpose", [&]{
+    checkCuda(cudaLaunchCooperativeKernel((void*)fused_attn_qkv_matmul_transpose_kernel_v2, dim3(4, 36,1), dim3(32,2,1), fused_kernel_args, 13056 * sizeof(half)));
+  });
+  cudaDeviceSynchronize();
+  return {output_qkv, query, key, value};
+}
+
+
+
+template<int64_t batch_size, int64_t num_heads, int64_t max_seq_length, int64_t hidden_size>
+float benchmark_fused_attn_qkv_matmul_transpose(torch::Tensor src, torch::Tensor weight_qkv, int round_cout, int loop){
+  // Check input
+  CHECK_CUDA(src);
+  CHECK_CUDA(weight_qkv);
+  assert(src.size(0)==batch_size*max_seq_length && src.size(1)==num_heads*hidden_size);
+  assert(weight_qkv.size(0)==num_heads*hidden_size*3 && weight_qkv.size(1)==num_heads*hidden_size);
+  check_compatability(64, (void*)fused_attn_qkv_matmul_transpose_kernel);
+
+  auto options_fp16 = torch::TensorOptions()
+    .dtype(torch::kFloat16)
+    .layout(torch::kStrided)
+    .device(torch::kCUDA, 0)
+    .requires_grad(false);
+  
+  auto output_qkv = torch::zeros({batch_size*max_seq_length, num_heads*hidden_size*3}, options_fp16);
+  auto query = torch::zeros({batch_size*num_heads, max_seq_length, hidden_size}, options_fp16);
+  auto key = torch::zeros({batch_size*num_heads, max_seq_length, hidden_size}, options_fp16);
+  auto value = torch::zeros({batch_size*num_heads, hidden_size, max_seq_length}, options_fp16);
+
+  at::Half* ptr_src = src.data<at::Half>();
+  at::Half* ptr_weight_qkv = weight_qkv.data<at::Half>();
+  at::Half* ptr_output_qkv = output_qkv.data<at::Half>();
+  at::Half* ptr_query = query.data<at::Half>();
+  at::Half* ptr_key = key.data<at::Half>();
+  at::Half* ptr_value = value.data<at::Half>();
+
+  void *fused_kernel_args[] = { (void *)&(ptr_src), (void *)&(ptr_weight_qkv), 
+    (void *)&(ptr_output_qkv), (void *)&(ptr_query), (void *)&(ptr_key), (void *)&(ptr_value)};
+  cudaEvent_t startEvent, stopEvent;
+  checkCuda(cudaEventCreate(&startEvent));
+  checkCuda(cudaEventCreate(&stopEvent));
+  // Warm up
+  for(int i=0; i<100; ++i){
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_attn_qkv_matmul_transpose", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((void*)fused_attn_qkv_matmul_transpose_kernel, dim3(4, 36,1), dim3(32,2,1), fused_kernel_args, 13056 * sizeof(half)));
+      });
+  }
+  float ms = 0, sum = 0;
+  // 1. For original pointwise conv
+  for(int round =0; round<round_cout; ++round){
+    for(int i=0; i<loop; ++i){
+      checkCuda( cudaEventRecord(startEvent,0) );
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_attn_qkv_matmul_transpose", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((void*)fused_attn_qkv_matmul_transpose_kernel, dim3(4, 36,1), dim3(32,2,1), fused_kernel_args, 13056 * sizeof(half)));
+      });
+      checkCuda( cudaEventRecord(stopEvent,0) );
+      checkCuda( cudaEventSynchronize(stopEvent) );
+      checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
+      sum += ms;
+    }
+    printf("Run iter %d  loops %d finished\n", round, loop);
+  }
+  cudaDeviceSynchronize();
+  checkCuda(cudaEventDestroy(startEvent));
+  checkCuda(cudaEventDestroy(stopEvent));
+  return (sum / (round_cout * loop));
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("d_sigmoid", &d_sigmoid, "d_sigmoid function");
   m.def("fused_query_key_matmul_softmax", &fused_query_key_matmul_softmax<1, 12, 128, 64>, 
     "bert fused_query_key_matmul_softmax with num_heads=12, max_seq_length=128, hidden_size=64");
   m.def("fused_feed_forward", &fused_feed_forward<1, 12, 128, 64, 3072>, 
     "bert fused_feed_forward with num_heads=12, max_seq_length=128, hidden_size=64, dim_feedforward=3072");
+  m.def("fused_attn_qkv_matmul_transpose", &fused_attn_qkv_matmul_transpose<1, 12, 128, 64>, 
+    "bert fused_attn_qkv_matmul_transpose with num_heads=12, max_seq_length=128, hidden_size=64");
+  m.def("benchmark_fused_attn_qkv_matmul_transpose", &benchmark_fused_attn_qkv_matmul_transpose<1, 12, 128, 64>, 
+    "bert benchmark_fused_attn_qkv_matmul_transpose with num_heads=12, max_seq_length=128, hidden_size=64");
 }
