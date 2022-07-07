@@ -299,7 +299,7 @@ endif
 # Target rules
 all: build
 
-build: bert_feed_forward.out bert_query_key.out bert_attn_qkv_transpose.out
+build: bert_feed_forward.out bert_query_key.out bert_attn_qkv_transpose.out bert_attn.out
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -310,32 +310,33 @@ endif
 
 bert_feed_forward.o:bert_feed_forward.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-
 bert_query_key.o:bert_query_key.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-
 bert_attn_qkv_transpose.o:bert_attn_qkv_transpose.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-
+bert_attn.o:bert_attn.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
 bert_feed_forward.out: bert_feed_forward.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-
 bert_query_key.out: bert_query_key.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-
 bert_attn_qkv_transpose.out: bert_attn_qkv_transpose.o
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+bert_attn.out: bert_attn.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
 	$(EXEC) ./bert_feed_forward.out
 	$(EXEC) ./bert_query_key.out
 	$(EXEC) ./bert_attn_qkv_transpose.out
+	$(EXEC) ./bert_attn.out
 
 
 clean:
 	rm -f bert_feed_forward.out bert_feed_forward.o
 	rm -f bert_query_key.out bert_query_key.o
 	rm -f bert_attn_qkv_transpose.out bert_attn_qkv_transpose.o
+	rm -f bert_attn.out bert_attn.o
 
 clobber: clean

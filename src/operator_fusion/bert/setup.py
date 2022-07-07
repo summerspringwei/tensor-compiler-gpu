@@ -4,7 +4,7 @@ from torch.utils import cpp_extension
 import os
 
 this_dir = os.path.dirname(os.path.abspath(__file__))
-
+CUDA_HOME = os.getenv('CUDA_HOME') if os.getenv('CUDA_HOME')!=None else "/usr/local/cuda"
 
 extra_compile_args = {"cxx": []}
 extra_compile_args["nvcc"] = [
@@ -21,8 +21,8 @@ setup(name='bert_binding',
         cpp_extension.CUDAExtension(
           'bert_binding', 
           ['bert_binding.cu'],
-          include_dirs=["/usr/local/cuda/include", this_dir+"../../"],
-          library_dirs=["/usr/local/cuda/lib64"],
+          include_dirs=[CUDA_HOME+"/include", this_dir+"../../"],
+          library_dirs=[CUDA_HOME+"/lib64"],
           extra_compile_args=extra_compile_args
           )
         ],

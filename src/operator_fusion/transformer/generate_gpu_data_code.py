@@ -92,10 +92,30 @@ def test_generate():
   # generate_gpu_data_code({"qeury": num_head * seq_length * hidden_size_per_head, "key": num_head * seq_length * hidden_size_per_head, 
   #   "output": num_head * seq_length * seq_length, "sum": num_head * seq_length}, "half", output_names=["output", "sum"])
   
-  generate_gpu_data_code({"input": seq_length*num_head*hidden_size_per_head, "weight_qkv": num_head*hidden_size_per_head*3*num_head*hidden_size_per_head, 
-    "query": num_head * seq_length * hidden_size_per_head, "key": num_head * seq_length * hidden_size_per_head, 
-    "value": num_head * seq_length * hidden_size_per_head, 
-    "output": num_head * seq_length * hidden_size_per_head}, "half", output_names=["output", "query", "key", "value"])
+  # generate_gpu_data_code({"input": seq_length*num_head*hidden_size_per_head, "weight_qkv": num_head*hidden_size_per_head*3*num_head*hidden_size_per_head, 
+  #   "query": num_head * seq_length * hidden_size_per_head, "key": num_head * seq_length * hidden_size_per_head, 
+  #   "value": num_head * seq_length * hidden_size_per_head, 
+  #   "output": num_head * seq_length * hidden_size_per_head}, "half", output_names=["output", "query", "key", "value"])
+  
+  generate_gpu_data_code({
+      "input": seq_length*num_head*hidden_size_per_head, 
+      "weight_qkv": num_head*hidden_size_per_head*3*num_head*hidden_size_per_head, 
+      "qkv_output": 3*num_head*num_head*hidden_size_per_head, 
+      "query": num_head * seq_length * hidden_size_per_head, 
+      "key": num_head * seq_length * hidden_size_per_head, 
+      "value": num_head * seq_length * hidden_size_per_head, 
+      "output": num_head * seq_length * hidden_size_per_head,
+      "query_key_output": num_head * seq_length * seq_length,
+      "sum": num_head * seq_length,
+      "qv_value_output": num_head * seq_length * hidden_size_per_head,
+      "attn_fc_weight" : num_head * hidden_size_per_head * num_head * hidden_size_per_head,
+      "attn_fc_output" : num_head * seq_length * hidden_size_per_head,
+      "attn_output_layer_norm_sum" : seq_length,
+      "attn_output_layer_norm_variance" : seq_length,
+    }, 
+    "half", output_names=[
+      "output", "query", "key", "value", "query_key_output", "sum", 
+      "qv_value_output", "attn_fc_output", "attn_output_layer_norm_sum", "attn_output_layer_norm_variance"])
 
 if __name__=="__main__":
   test_generate()

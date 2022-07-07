@@ -964,8 +964,9 @@ extern "C" __global__ void __launch_bounds__(128)
     if(threadIdx.x < 32){
       float reduce_sum = 0;
       #pragma unroll
-      for(int i=0; i<32; ++i){
-        reduce_sum += __half2float(x_shared[threadIdx.x * x_shared_row_stride + i]);
+      for(int i=0; i<16; ++i){
+        auto tmp = ((half2*)(x_shared + threadIdx.x * x_shared_row_stride + i*2))[0];
+        reduce_sum += (__half2float(tmp.x) + __half2float(tmp.y));
       }
       atomicAdd(sum + blockIdx_x * 32 + threadIdx.x, reduce_sum / 768);
     }
@@ -984,12 +985,14 @@ extern "C" __global__ void __launch_bounds__(128)
     // Compute variance
     if(threadIdx.x < 32){
       half avg = __float2half(sum[blockIdx_x * 32 + threadIdx.x]);
+      half2 avg2(avg, avg);
       // Compute variace
       float reduce_sum = 0;
       #pragma unroll
-      for(int i=0; i<32; ++i){
-        float delt = __half2float(x_shared[threadIdx.x * x_shared_row_stride + i] - avg);
-        reduce_sum += (delt * delt);
+      for(int i=0; i<16; ++i){
+        auto delt = ((half2*)(x_shared + threadIdx.x * x_shared_row_stride + i*2))[0] - avg2;
+        float2 delt_f = __half22float2(delt);
+        reduce_sum += (delt_f.x * delt_f.x + delt_f.y * delt_f.y);
       }
       atomicAdd(variance + blockIdx_x * 32 + threadIdx.x, reduce_sum / 768);
     }
