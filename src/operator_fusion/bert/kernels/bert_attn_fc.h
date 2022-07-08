@@ -23,7 +23,7 @@ const int threadIdx_y = threadIdx.x / 32;
       placeholder_shared_wmma_matrix_b[1];
   (void)nvcuda::wmma::fill_fragment(T_dense_wmma_accumulator[0], 0.000000e+00f);
   // 768=6*128
-  for (int k_outer_outer = 0; k_outer_outer < 1; ++k_outer_outer) {
+  for (int k_outer_outer = 0; k_outer_outer < 6; ++k_outer_outer) {
     __syncthreads();
     // x_shared input: 32*128
     // 1088 = 8*136, 272=2*136, 24576=32*768, 6144=8*768, 1536=2*768
@@ -60,7 +60,7 @@ const int threadIdx_y = threadIdx.x / 32;
     }
     __syncthreads();
     //1088=8*128， m8n32k16 128=16*8
-    for (int k_outer_inner = 0; k_outer_inner < 1; ++k_outer_inner) {
+    for (int k_outer_inner = 0; k_outer_inner < 8; ++k_outer_inner) {
       (void)nvcuda::wmma::load_matrix_sync(
           x_shared_wmma_matrix_a[0],
           ((half*)x_shared +

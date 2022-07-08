@@ -175,7 +175,7 @@ extern "C" __global__ void __launch_bounds__(128)
         int g_addr = (num_head << 13) + (g_row << 6) + hidden;
         cuda::memcpy_async(((key + g_addr)), ((x_shared + s_addr)), shape, pipe);
       }
-  }
+    }
 
     // Do transpose for value
     // Now (128, 768) -> reshape (128, 12, 64) -> transpose (12, 64, 128)
@@ -231,11 +231,9 @@ extern "C" __global__ void __launch_bounds__(128)
         ((uint4*)(fused_query_key_matmul_softmax_placeholder_shared + ((((ax1_ax2_fused_outer_outer_outer_outer1 * 544) + ((((int)threadIdx_x) >> 3) * 136)) + ((((int)threadIdx_x) & 7) * 8)))))[0] = 
           ((uint4*)(key + (((((((int)blockIdx_z) * 8192) + (((int)blockIdx_y) * 2048)) + (ax1_ax2_fused_outer_outer_outer_outer1 * 256)) + (((int)threadIdx_x) * 8)))))[0];
       }
-      
+    }
     __syncthreads();
-    // }
-    // __syncthreads();
-    // if(threadIdx.x < 32){
+    if(threadIdx.x < 32){
       for (int k_outer_inner = 0; k_outer_inner < 4; ++k_outer_inner) {
         for (int ax1_outer = 0; ax1_outer < 2; ++ax1_outer) {
           (void)nvcuda::wmma::load_matrix_sync(fused_query_key_matmul_softmax_x_shared_wmma_matrix_a[ax1_outer], ((half *)fused_query_key_matmul_softmax_x_shared + (((ax1_outer * 2176) + (k_outer_inner * 16)))), 136);
@@ -433,6 +431,11 @@ extern "C" __global__ void __launch_bounds__(128)
     }
     __syncthreads();
   }// End of attn_value_matmul, dim3(8, 2,12), dim3(32,1,1)
+
+  //Note: remember to Initialize sum to 0! (128 elements)
+  if(blockIdx.x==0){
+    sum[threadIdx.x] = 0;
+  }
   __threadfence();
   grid.sync();
 
@@ -440,347 +443,155 @@ extern "C" __global__ void __launch_bounds__(128)
   // Begin of attn_fc, dim3(4, 24,1), dim3(32,4,1)
   //half* __restrict__ attn_value_output, half* __restrict__ attn_fc_weight,
   if(blockIdx.x < 96){
+    cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
+    const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
+    const int blockIdx_x = blockIdx.x % 4;
+    const int blockIdx_y = blockIdx.x / 4;
+    const int threadIdx_x = threadIdx.x % 32;
+    const int threadIdx_y = threadIdx.x / 32;
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 8, 32, 16, half>
       T_dense_wmma_accumulator[1];
-      half* x_shared = &(shared_buff_fused[0]);
-      half* placeholder_shared = &(shared_buff_fused[4352]);
-      half* tmp_shared = &(shared_buff_fused[8704]);
-  // __shared__ half x_shared[4352];// 32*136
-  // __shared__ half placeholder_shared[4352];
-  const int blockIdx_x = blockIdx.x % 4;
-  const int blockIdx_y = blockIdx.x / 4;
-  const int threadIdx_x = threadIdx.x % 32;
-  const int threadIdx_y = threadIdx.x / 32;
-  nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 32, 16, half,
-                         nvcuda::wmma::row_major>
-      x_shared_wmma_matrix_a[1];
-  nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 32, 16, half,
-                         nvcuda::wmma::col_major>
-      placeholder_shared_wmma_matrix_b[1];
-  (void)nvcuda::wmma::fill_fragment(T_dense_wmma_accumulator[0], 0.000000e+00f);
-  // Modify
-  for (int k_outer_outer = 0; k_outer_outer < 1; ++k_outer_outer) {
-    __threadfence();
-    __syncthreads();
-    // x_shared input: 32*128
-    // 1088 = 8*136, 272=2*136, 24576=32*768, 6144=8*768, 1536=2*768
-    for (int ax0_ax1_fused_outer_outer_outer_outer = 0;
-         ax0_ax1_fused_outer_outer_outer_outer < 4;
-         ++ax0_ax1_fused_outer_outer_outer_outer) {
-      ((uint4*)(x_shared + (((((ax0_ax1_fused_outer_outer_outer_outer * 1088) +
-                               (((int)threadIdx_y) * 272)) +
-                              ((((int)threadIdx_x) >> 4) * 136)) +
-                             ((((int)threadIdx_x) & 15) * 8)))))[0] =
-          ((uint4*)(attn_value_output + (((((((((int)blockIdx_x) * 24576) +
-                              (ax0_ax1_fused_outer_outer_outer_outer * 6144)) +
-                             (((int)threadIdx_y) * 1536)) +
+    half* x_shared = &(shared_buff_fused[0]);
+    half* placeholder_shared = &(shared_buff_fused[4352]);
+    half* short_cut_shared = &(shared_buff_fused[8704]);
+    // __shared__ half x_shared[4352];
+    // __shared__ half placeholder_shared[4352];
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 32, 16, half,
+                          nvcuda::wmma::row_major>
+        x_shared_wmma_matrix_a[1];
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 32, 16, half,
+                          nvcuda::wmma::col_major>
+        placeholder_shared_wmma_matrix_b[1];
+    (void)nvcuda::wmma::fill_fragment(T_dense_wmma_accumulator[0], 0.000000e+00f);
+    for (int k_outer_outer = 0; k_outer_outer < 6; ++k_outer_outer) {
+      __syncthreads();
+      if(threadIdx.x < 128){
+        for (int ax0_ax1_fused_outer_outer_outer_outer = 0;
+            ax0_ax1_fused_outer_outer_outer_outer < 4;
+            ++ax0_ax1_fused_outer_outer_outer_outer) {
+          ((uint4*)(x_shared + (((((ax0_ax1_fused_outer_outer_outer_outer * 1088) +
+                                  (((int)threadIdx_y) * 272)) +
+                                  ((((int)threadIdx_x) >> 4) * 136)) +
+                                ((((int)threadIdx_x) & 15) * 8)))))[0] =
+              ((uint4*)(attn_value_output + (((((((((int)blockIdx_x) * 24576) +
+                                  (ax0_ax1_fused_outer_outer_outer_outer * 6144)) +
+                                (((int)threadIdx_y) * 1536)) +
+                                ((((int)threadIdx_x) >> 4) * 768)) +
+                              (k_outer_outer * 128)) +
+                              ((((int)threadIdx_x) & 15) * 8)))))[0];
+        }
+        for (int ax0_ax1_fused_outer_outer_outer_outer1 = 0;
+            ax0_ax1_fused_outer_outer_outer_outer1 < 4;
+            ++ax0_ax1_fused_outer_outer_outer_outer1) {
+          ((uint4*)(placeholder_shared +
+                    (((((ax0_ax1_fused_outer_outer_outer_outer1 * 1088) +
+                        (((int)threadIdx_y) * 272)) +
+                      ((((int)threadIdx_x) >> 4) * 136)) +
+                      ((((int)threadIdx_x) & 15) * 8)))))[0] =
+              ((uint4*)(attn_fc_weight +
+                        (((((((((int)blockIdx_y) * 24576) +
+                              (ax0_ax1_fused_outer_outer_outer_outer1 * 6144)) +
+                            (((int)threadIdx_y) * 1536)) +
                             ((((int)threadIdx_x) >> 4) * 768)) +
-                           (k_outer_outer * 128)) +
+                          (k_outer_outer * 128)) +
                           ((((int)threadIdx_x) & 15) * 8)))))[0];
-    }
-    // 1088=8*136, 272=2*136, placeholder_shared: 32*128
-    for (int ax0_ax1_fused_outer_outer_outer_outer1 = 0;
-         ax0_ax1_fused_outer_outer_outer_outer1 < 4;
-         ++ax0_ax1_fused_outer_outer_outer_outer1) {
-      ((uint4*)(placeholder_shared +
-                (((((ax0_ax1_fused_outer_outer_outer_outer1 * 1088) +
-                    (((int)threadIdx_y) * 272)) +
-                   ((((int)threadIdx_x) >> 4) * 136)) +
-                  ((((int)threadIdx_x) & 15) * 8)))))[0] =
-          ((uint4*)(attn_fc_weight +
-                    (((((((((int)blockIdx_y) * 24576) +
-                          (ax0_ax1_fused_outer_outer_outer_outer1 * 6144)) +
-                         (((int)threadIdx_y) * 1536)) +
-                        ((((int)threadIdx_x) >> 4) * 768)) +
-                       (k_outer_outer * 128)) +
-                      ((((int)threadIdx_x) & 15) * 8)))))[0];
-    }
-    __threadfence();
-    __syncthreads();
-    //1088=8*128
-    for(int i=0; i<32; i++){
-      if(!(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99))){
-        printf("496: error block!%d, %d!thread!%d, %d! i:%d %f\n", 
-        blockIdx_x, blockIdx_y, threadIdx_x, threadIdx_y, i * 136 + threadIdx.x,
-          placeholder_shared[i*136 + threadIdx.x]<=half(1.01));
-      }
-      // assert(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99));
-    }
-    __threadfence();
-    __syncthreads();
-    for (int k_outer_inner = 0; k_outer_inner < 1; ++k_outer_inner) {
-      for(int i=0; i<32; i++){
-        if(!(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99))){
-          printf("508: error block!%d, %d!thread!%d, %d! i:%d %f\n", 
-          blockIdx_x, blockIdx_y, threadIdx_x, threadIdx_y, i * 136 + threadIdx.x,
-            placeholder_shared[i*136 + threadIdx.x]<=half(1.01));
         }
-        // assert(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99));
-      } 
-      (void)nvcuda::wmma::load_matrix_sync(
-          x_shared_wmma_matrix_a[0],
-          ((half*)x_shared +
-           (((((int)threadIdx_y) * 1088) + (k_outer_inner * 16)))),
-          136);
-      (void)nvcuda::wmma::load_matrix_sync(
-          placeholder_shared_wmma_matrix_b[0],
-          ((half*)placeholder_shared + ((k_outer_inner * 16))), 136);
-      (void)nvcuda::wmma::mma_sync(
-          T_dense_wmma_accumulator[0], x_shared_wmma_matrix_a[0],
-          placeholder_shared_wmma_matrix_b[0], T_dense_wmma_accumulator[0]);
-          //Testing
-      __threadfence();
+      }
       __syncthreads();
-      for(int i=0; i<32; i++){
-        if(!(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99))){
-          printf("531: error block!%d, %d!thread!%d, %d! i:%d %f\n", 
-          blockIdx_x, blockIdx_y, threadIdx_x, threadIdx_y, i * 136 + threadIdx.x,
-            placeholder_shared[i*136 + threadIdx.x]<=half(1.01));
+      if(threadIdx.x < 128){
+        // For next pipe Short_cut_add
+        if(k_outer_outer == 5){
+          pipe.producer_acquire();
+          cuda::memcpy_async((short_cut_shared +
+                          (((((int)threadIdx_y) * 256) + (((int)threadIdx_x) * 8)))),
+                          (x +
+                      ((((((((int)blockIdx_x) * 24576) + (((int)threadIdx_y) * 6144)) +
+                          ((((int)threadIdx_x) >> 2) * 768)) +
+                        (((int)blockIdx_y) * 32)) +
+                        ((((int)threadIdx_x) & 3) * 8)))), shape, pipe);
+          pipe.producer_commit();
         }
-        // assert(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99));
+        for (int k_outer_inner = 0; k_outer_inner < 8; ++k_outer_inner) {
+          (void)nvcuda::wmma::load_matrix_sync(
+              x_shared_wmma_matrix_a[0],
+              ((half*)x_shared +
+              (((((int)threadIdx_y) * 1088) + (k_outer_inner * 16)))),
+              136);
+          (void)nvcuda::wmma::load_matrix_sync(
+              placeholder_shared_wmma_matrix_b[0],
+              ((half*)placeholder_shared + ((k_outer_inner * 16))), 136);
+          (void)nvcuda::wmma::mma_sync(
+              T_dense_wmma_accumulator[0], x_shared_wmma_matrix_a[0],
+              placeholder_shared_wmma_matrix_b[0], T_dense_wmma_accumulator[0]);
+        }
       }
-    (void)nvcuda::wmma::store_matrix_sync(
-        ((half*)tmp_shared + ((((int)threadIdx_y) * 256))),
-        T_dense_wmma_accumulator[0], 32, nvcuda::wmma::mem_row_major);
-      auto debug_store_addr = ((half*)tmp_shared + ((((int)threadIdx_y) * 256)));
-      auto b_bound = placeholder_shared + 32 * 136;
-      if (threadIdx_x == 0) {
-        if (debug_store_addr < b_bound) {
-          printf("out_of_bound: block!%d, %d!thread!%d, %d!\n",blockIdx_x, blockIdx_y, threadIdx_x, threadIdx_y);
-        }
-      }
-      for(int i=0; i<32; i++){
-        for (int j = 0; j < 128; j++) {
-          if(!(placeholder_shared[i*136 + j]<=half(1.01) && placeholder_shared[i*136 + j]>=half(0.99))){
-            printf("548: error block!%d, %d!thread!%d, %d! i:%d %f\n", 
-            blockIdx_x, blockIdx_y, threadIdx_x, threadIdx_y, i * 136 + j,
-              placeholder_shared[i*136 + threadIdx.x]<=half(1.01));
-          }
-        }
-        // assert(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99));
-      } 
-      __threadfence();
-      __syncthreads();
-      for(int i=0; i<32; i++){
-        if(!(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99))){
-          printf("561: error block!%d, %d!thread!%d, %d! i:%d %f\n", 
-          blockIdx_x, blockIdx_y, threadIdx_x, threadIdx_y, i * 136 + threadIdx.x,
-            placeholder_shared[i*136 + threadIdx.x]<=half(1.01));
-        }
-        // assert(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99));
-      } 
-      if(blockIdx.x<96){
-        for(int i=0; i<32; i++){
-          if(!(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99))){
-            printf("555: error block!%d, %d!thread!%d, %d! i:%d %f\n", 
-            blockIdx_x, blockIdx_y, threadIdx_x, threadIdx_y, i * 136 + threadIdx.x,
-              placeholder_shared[i*136 + threadIdx.x]<=half(1.01));
-            placeholder_shared[i*136 + threadIdx.x]=half(1.0);
-          }
-          // assert(placeholder_shared[i*136 + threadIdx.x]<=half(1.01) && placeholder_shared[i*136 + threadIdx.x]>=half(0.99));
-        } 
+    }
+    __syncthreads();
+    
+    if(threadIdx.x < 128){
+      // x_shared shape is (32, 32) =  (4x8, 32)
+      (void)nvcuda::wmma::store_matrix_sync(
+          ((half*)x_shared + ((((int)threadIdx_y) * 256))),
+          T_dense_wmma_accumulator[0], 32, nvcuda::wmma::mem_row_major);
+    }
+    __syncthreads();
+    // if(threadIdx.x < 128){
+    // ((uint4*)(ptr_inter_attn_fc_output +
+    //         ((((((((int)blockIdx_x) * 24576) + (((int)threadIdx_y) * 6144)) +
+    //             ((((int)threadIdx_x) >> 2) * 768)) +
+    //            (((int)blockIdx_y) * 32)) +
+    //           ((((int)threadIdx_x) & 3) * 8)))))[0] =
+    //   ((uint4*)(x_shared +
+    //             (((((int)threadIdx_y) * 256) + (((int)threadIdx_x) * 8)))))[0];
+    // }
+    __syncthreads();
 
-        if(threadIdx.x<32){
-          half sum(0);
-          for(int i=0; i<16;i++){
-            sum += x_shared[threadIdx.x * 136 + i];
-          }
-          printf("sum: block!%d, %d!thread!%d, %d!^%d,%d^->%f, %f\n", 
-          blockIdx_x, blockIdx_y,
-          threadIdx_x, threadIdx_y, k_outer_outer, k_outer_inner,
-          __half2float(sum), __half2float(tmp_shared[threadIdx.x*128]));
-        }
-        printf("A: block!%d, %d!thread!%d, %d!^%d,%d^->%f %f\n", 
-          blockIdx_x, blockIdx_y,
-          threadIdx_x, threadIdx_y, k_outer_outer, k_outer_inner,
-          __half2float(x_shared[threadIdx_y*32+threadIdx_x]),
-          __half2float(x_shared[136+threadIdx_y*32+threadIdx_x]));
-        auto ga1 = (attn_value_output + ((((int)blockIdx_x) * 24576)) +
-                             ((k_outer_outer * 128) +threadIdx_y*32+threadIdx_x))[0];
-        auto ga2 = (attn_value_output + ((((int)blockIdx_x) * 24576)) + 768 +
-                             ((k_outer_outer * 128) +threadIdx_y*32+threadIdx_x))[0];
-        printf("GA: block!%d, %d!thread!%d, %d!^%d,%d^->%f, %f \n", 
-          blockIdx_x, blockIdx_y,
-          threadIdx_x, threadIdx_y, k_outer_outer, k_outer_inner,
-          __half2float(ga1), __half2float(ga1));
-        
-        printf("B: block!%d, %d!thread!%d, %d!^%d,%d^->%f %f\n", 
-          blockIdx_x, blockIdx_y,
-          threadIdx_x, threadIdx_y, k_outer_outer, k_outer_inner,
-          __half2float(placeholder_shared[threadIdx_y*32+threadIdx_x]),
-          __half2float(placeholder_shared[136+threadIdx_y*32+threadIdx_x]));
-        for(int i=0; i<8; ++i){
-          printf("C: block!%d, %d!thread!%d, %d!^%d,%d^->%f \n", 
-            blockIdx_x, blockIdx_y,
-            threadIdx_x, threadIdx_y, k_outer_outer, k_outer_inner,
-            __half2float(tmp_shared[i*128+threadIdx_y*32+threadIdx_x]));
-        }
+    // Do Short cut add
+    // shared shape (32, 32), each thread compute half2, 16 threads compute a row, 128 threads compute 8 row
+    if(threadIdx.x < 128){
+      // pipe.consumer_wait();
+      // pipe.consumer_release();
+      const int num_iter = 32 / 8;
+      for(int i=0; i<num_iter;++i){
+        // int row = i * 8 + threadIdx_y * 2 + (threadIdx_x / 16);
+        // int col = (threadIdx_x % 16) * 2;
+        // int s_addr = row * 32 + col;
+        int row = (i << 3) + (threadIdx_y << 1) + (threadIdx_x >> 4);
+        int col = (threadIdx_x & 0xf) << 1;
+        int s_addr = (row << 5) + col;
+        ((half2*)(x_shared+s_addr))[0] = ((half2*)(x_shared+s_addr))[0] + ((half2*)(short_cut_shared+s_addr))[0];
       }
     }
-  }
-  __threadfence();
-  __syncthreads();
-  (void)nvcuda::wmma::store_matrix_sync(
-      ((half*)placeholder_shared + ((((int)threadIdx_y) * 256))),
-      T_dense_wmma_accumulator[0], 32, nvcuda::wmma::mem_row_major);
-  __threadfence();
-  __syncthreads();
-  ((uint4*)(ptr_inter_attn_fc_output +
+    __syncthreads();
+    if(threadIdx.x < 128){
+    ((uint4*)(ptr_inter_attn_fc_output +
             ((((((((int)blockIdx_x) * 24576) + (((int)threadIdx_y) * 6144)) +
                 ((((int)threadIdx_x) >> 2) * 768)) +
                (((int)blockIdx_y) * 32)) +
               ((((int)threadIdx_x) & 3) * 8)))))[0] =
-      ((uint4*)(placeholder_shared +
+      ((uint4*)(x_shared +
                 (((((int)threadIdx_y) * 256) + (((int)threadIdx_x) * 8)))))[0];
+    }
+    __syncthreads();
     
-      printf("FC: block!%d, %d!thread!%d, %d!->%f \n", 
-          blockIdx_x, blockIdx_y,
-          threadIdx_x, threadIdx_y,
-          __half2float(tmp_shared[threadIdx_y*32+threadIdx_x]));
-    
-    __threadfence();
-  __syncthreads();
+    // Do Layer norm
+    // 1. sum
+    const int x_shared_row_stride = 32;
+    if(threadIdx.x < 32){
+      // each thread compute half2
+      const int num_iter = 32 / (sizeof(half2)/sizeof(half));
+      float reg_sum = 0.0;
+      #pragma unroll
+      for(int i=0; i<num_iter; ++i){
+        auto tmp = ((half2*)(x_shared + threadIdx_x * x_shared_row_stride + i * 2))[0];
+        reg_sum += (__half2float(tmp.x) + __half2float(tmp.y));
+      }
+      atomicAdd(sum + blockIdx_x * 32 + threadIdx.x, reg_sum);
+    }
+    __syncthreads();
   }
-  __threadfence();
-  __syncthreads();
-  // if(blockIdx.x < 96){
-  //   // cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
-  //   const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
-  //   const int blockIdx_x = blockIdx.x % 4;
-  //   const int blockIdx_y = blockIdx.x / 4;
-  //   const int threadIdx_x = threadIdx.x % 32;
-  //   const int threadIdx_y = threadIdx.x / 32;
-  //   nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 8, 32, 16, half>
-  //     T_dense_wmma_accumulator[1];
-  //   half* x_shared = &(shared_buff_fused[0]);
-  //   half* placeholder_shared = &(shared_buff_fused[4352]);
-  //   half* short_cut_shared = &(shared_buff_fused[8704]);
-  //   // __shared__ half x_shared[4352];
-  //   // __shared__ half placeholder_shared[4352];
-  //   nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 32, 16, half,
-  //                         nvcuda::wmma::row_major>
-  //       x_shared_wmma_matrix_a[1];
-  //   nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 32, 16, half,
-  //                         nvcuda::wmma::col_major>
-  //       placeholder_shared_wmma_matrix_b[1];
-  //   (void)nvcuda::wmma::fill_fragment(T_dense_wmma_accumulator[0], 0.000000e+00f);
-  //   for (int k_outer_outer = 0; k_outer_outer < 6; ++k_outer_outer) {
-  //     __syncthreads();
-  //     // if(threadIdx.x < 128){
-  //       for (int ax0_ax1_fused_outer_outer_outer_outer = 0;
-  //           ax0_ax1_fused_outer_outer_outer_outer < 4;
-  //           ++ax0_ax1_fused_outer_outer_outer_outer) {
-  //         ((uint4*)(x_shared + (((((ax0_ax1_fused_outer_outer_outer_outer * 1088) +
-  //                                 (((int)threadIdx_y) * 272)) +
-  //                                 ((((int)threadIdx_x) >> 4) * 136)) +
-  //                               ((((int)threadIdx_x) & 15) * 8)))))[0] =
-  //             ((uint4*)(attn_value_output + (((((((((int)blockIdx_x) * 24576) +
-  //                                 (ax0_ax1_fused_outer_outer_outer_outer * 6144)) +
-  //                               (((int)threadIdx_y) * 1536)) +
-  //                               ((((int)threadIdx_x) >> 4) * 768)) +
-  //                             (k_outer_outer * 128)) +
-  //                             ((((int)threadIdx_x) & 15) * 8)))))[0];
-  //       }
-  //       for (int ax0_ax1_fused_outer_outer_outer_outer1 = 0;
-  //           ax0_ax1_fused_outer_outer_outer_outer1 < 4;
-  //           ++ax0_ax1_fused_outer_outer_outer_outer1) {
-  //         ((uint4*)(placeholder_shared +
-  //                   (((((ax0_ax1_fused_outer_outer_outer_outer1 * 1088) +
-  //                       (((int)threadIdx_y) * 272)) +
-  //                     ((((int)threadIdx_x) >> 4) * 136)) +
-  //                     ((((int)threadIdx_x) & 15) * 8)))))[0] =
-  //             ((uint4*)(attn_fc_weight +
-  //                       (((((((((int)blockIdx_y) * 24576) +
-  //                             (ax0_ax1_fused_outer_outer_outer_outer1 * 6144)) +
-  //                           (((int)threadIdx_y) * 1536)) +
-  //                           ((((int)threadIdx_x) >> 4) * 768)) +
-  //                         (k_outer_outer * 128)) +
-  //                         ((((int)threadIdx_x) & 15) * 8)))))[0];
-  //       }
-  //     // }
-  //     __syncthreads();
-  //     // if(threadIdx.x < 128){
-  //       // For next pipe Short_cut_add
-  //       // if(k_outer_outer == 5){
-  //       //   pipe.producer_acquire();
-  //       //   cuda::memcpy_async((short_cut_shared +
-  //       //                   (((((int)threadIdx_y) * 256) + (((int)threadIdx_x) * 8)))),
-  //       //                   (x +
-  //       //               ((((((((int)blockIdx_x) * 24576) + (((int)threadIdx_y) * 6144)) +
-  //       //                   ((((int)threadIdx_x) >> 2) * 768)) +
-  //       //                 (((int)blockIdx_y) * 32)) +
-  //       //                 ((((int)threadIdx_x) & 3) * 8)))), shape, pipe);
-  //       //   pipe.producer_commit();
-  //       // }
-  //       for (int k_outer_inner = 0; k_outer_inner < 8; ++k_outer_inner) {
-  //         (void)nvcuda::wmma::load_matrix_sync(
-  //             x_shared_wmma_matrix_a[0],
-  //             ((half*)x_shared +
-  //             (((((int)threadIdx_y) * 1088) + (k_outer_inner * 16)))),
-  //             136);
-  //         (void)nvcuda::wmma::load_matrix_sync(
-  //             placeholder_shared_wmma_matrix_b[0],
-  //             ((half*)placeholder_shared + ((k_outer_inner * 16))), 136);
-  //         (void)nvcuda::wmma::mma_sync(
-  //             T_dense_wmma_accumulator[0], x_shared_wmma_matrix_a[0],
-  //             placeholder_shared_wmma_matrix_b[0], T_dense_wmma_accumulator[0]);
-  //       }
-  //     // }
-  //   }
-  //   __syncthreads();
-    
-  //   // if(threadIdx.x < 128){
-  //     // x_shared shape is (32, 32) =  (4x8, 32)
-  //     (void)nvcuda::wmma::store_matrix_sync(
-  //         ((half*)x_shared + ((((int)threadIdx_y) * 256))),
-  //         T_dense_wmma_accumulator[0], 32, nvcuda::wmma::mem_row_major);
-  //     __syncthreads();
-  //   ((uint4*)(ptr_inter_attn_fc_output +
-  //           ((((((((int)blockIdx_x) * 24576) + (((int)threadIdx_y) * 6144)) +
-  //               ((((int)threadIdx_x) >> 2) * 768)) +
-  //              (((int)blockIdx_y) * 32)) +
-  //             ((((int)threadIdx_x) & 3) * 8)))))[0] =
-  //     ((uint4*)(x_shared +
-  //               (((((int)threadIdx_y) * 256) + (((int)threadIdx_x) * 8)))))[0];
-  //   // }
-  //   __syncthreads();
-
-  //   // Do Short cut add
-  //   // shared shape (32, 32), each thread compute half2, 16 threads compute a row, 128 threads compute 8 row
-  //   if(threadIdx.x < 128){
-  //     // pipe.consumer_wait();
-  //     // pipe.consumer_release();
-  //     const int num_iter = 32 / 8;
-  //     for(int i=0; i<num_iter;++i){
-  //       // int row = i * 8 + threadIdx_y * 2 + (threadIdx_x / 16);
-  //       // int col = (threadIdx_x % 16) * 2;
-  //       // int s_addr = row * 32 + col;
-  //       int row = (i << 3) + (threadIdx_y << 1) + (threadIdx_x >> 4);
-  //       int col = (threadIdx_x & 0xf) << 1;
-  //       int s_addr = (row << 5) + col;
-  //       ((half2*)(x_shared+s_addr))[0] = ((half2*)(x_shared+s_addr))[0] + ((half2*)(short_cut_shared+s_addr))[0];
-  //     }
-  //   }
-  //   __syncthreads();
-
-  //   // Do Layer norm
-  //   // 1. sum
-  //   const int x_shared_row_stride = 32;
-  //   if(threadIdx.x < 32){
-  //     // each thread compute half2
-  //     const int num_iter = 32 / (sizeof(half2)/sizeof(half));
-  //     float reg_sum = 0.0;
-  //     #pragma unroll
-  //     for(int i=0; i<num_iter; ++i){
-  //       auto tmp = ((half2*)(x_shared + threadIdx_x * x_shared_row_stride + i * 2))[0];
-  //       reg_sum += (__half2float(tmp.x) + __half2float(tmp.y));
-  //     }
-  //     atomicAdd(sum + blockIdx_x * 32 + threadIdx.x, reg_sum);
-  //   }
-  //   __syncthreads();
-  //   }
-    // 2. grid.sync()
-    grid.sync();
+  // 2. grid.sync()
+  grid.sync();
   if(blockIdx.x < 96){
     const int blockIdx_x = blockIdx.x % 4;
     const int blockIdx_y = blockIdx.x / 4;
@@ -840,6 +651,5 @@ extern "C" __global__ void __launch_bounds__(128)
                     (((((int)threadIdx_y) * 256) + (((int)threadIdx_x) * 8)))))[0];
     }
   }// End of fused attn_fc + add + LayerNorm, dim3(4, 24,1), dim3(32,4,1)
-
 }
 

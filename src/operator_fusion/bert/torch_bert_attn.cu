@@ -95,6 +95,7 @@ float test_bert_attn(int round_cout=1, int loop=1){
   auto t_attn_fc_output_tmp = torch::matmul(t_attn_value_output_permuted, torch::permute(t_attn_fc_weight, {1, 0}));
   // Short cut
   auto t_attn_fc_output = torch::add(src, t_attn_fc_output_tmp);
+  auto t_reduce_sum = torch::sum(t_attn_fc_output, 1, false, torch::kFloat32);
   auto t_attn_layer_norm_output = torch::layer_norm(t_attn_fc_output, {768,});
 
   // Our implementation
@@ -185,6 +186,10 @@ float test_bert_attn(int round_cout=1, int loop=1){
   torch::print(single_attn_fc_output, 768*100);
   printf("inter_attn_fc_output\n");
   torch::print(inter_attn_fc_output, 768*100);
+  printf("t_reduce_sum\n");
+  torch::print(t_reduce_sum, 768*100);
+  printf("sum\n");
+  torch::print(sum, 768*100);
   
 
   my_compare(attn_fc_output.cpu().data<at::Half>(), t_attn_layer_norm_output.cpu().data<at::Half>(), 128, 768, 1.0/16, 1.0/1024);
@@ -202,7 +207,8 @@ float test_bert_attn(int round_cout=1, int loop=1){
   // assert(torch::allclose(attn_fc_output, t_attn_fc_output, 1.0/16, 1.0/1024));
   assert(torch::allclose(attn_fc_weight, t_attn_fc_weight, 1.0/16, 1.0/1024));
   assert(torch::allclose(t_attn_fc_output_tmp, single_attn_fc_output, 1.0/16, 1.0/1024));
-  assert(torch::allclose(inter_attn_fc_output, single_attn_fc_output, 1.0/16, 1.0/1024));
+  assert(torch::allclose(inter_attn_fc_output, t_attn_fc_output, 1.0/16, 1.0/1024));
+  // assert(torch::allclose(t_reduce_sum, sum, 1.0/16, 1.0/1024));
   assert(torch::allclose(attn_fc_output, t_attn_layer_norm_output, 1.0/16, 1.0/1024));
 
 
