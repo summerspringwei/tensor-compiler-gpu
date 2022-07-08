@@ -1031,23 +1031,26 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
         }
     }
     // Load last 2 state weight to register
-    s00 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 0 * blockDim.x + threadIdx.x];
-    s01 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 1 * blockDim.x + threadIdx.x];
-    s02 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 2 * blockDim.x + threadIdx.x];
-    s03 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 3 * blockDim.x + threadIdx.x];
-    s04 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 4 * blockDim.x + threadIdx.x];
-    s05 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 5 * blockDim.x + threadIdx.x];
-    s06 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 6 * blockDim.x + threadIdx.x];
-    s07 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 7 * blockDim.x + threadIdx.x];
+    const int ws2_idx = (blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 2 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden;
+    const int ws3_idx = (blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden;
 
-    s10 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 0 * blockDim.x + threadIdx.x];
-    s11 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 1 * blockDim.x + threadIdx.x];
-    s12 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 2 * blockDim.x + threadIdx.x];
-    s13 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 3 * blockDim.x + threadIdx.x];
-    s14 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 4 * blockDim.x + threadIdx.x];
-    s15 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 5 * blockDim.x + threadIdx.x];
-    s16 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 6 * blockDim.x + threadIdx.x];
-    s17 = weight_state_wavefront[(blockIdx.x / kNumBlockPerCell) * kNumInputGate * num_hidden * num_hidden + 3 * num_hidden * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow * num_hidden + threadIdx.y * num_hidden + 7 * blockDim.x + threadIdx.x];
+    s00 = weight_state_wavefront[ws2_idx + 0 * blockDim.x + threadIdx.x];
+    s01 = weight_state_wavefront[ws2_idx + 1 * blockDim.x + threadIdx.x];
+    s02 = weight_state_wavefront[ws2_idx + 2 * blockDim.x + threadIdx.x];
+    s03 = weight_state_wavefront[ws2_idx + 3 * blockDim.x + threadIdx.x];
+    s04 = weight_state_wavefront[ws2_idx + 4 * blockDim.x + threadIdx.x];
+    s05 = weight_state_wavefront[ws2_idx + 5 * blockDim.x + threadIdx.x];
+    s06 = weight_state_wavefront[ws2_idx + 6 * blockDim.x + threadIdx.x];
+    s07 = weight_state_wavefront[ws2_idx + 7 * blockDim.x + threadIdx.x];
+
+    s10 = weight_state_wavefront[ws3_idx + 0 * blockDim.x + threadIdx.x];
+    s11 = weight_state_wavefront[ws3_idx + 1 * blockDim.x + threadIdx.x];
+    s12 = weight_state_wavefront[ws3_idx + 2 * blockDim.x + threadIdx.x];
+    s13 = weight_state_wavefront[ws3_idx + 3 * blockDim.x + threadIdx.x];
+    s14 = weight_state_wavefront[ws3_idx + 4 * blockDim.x + threadIdx.x];
+    s15 = weight_state_wavefront[ws3_idx + 5 * blockDim.x + threadIdx.x];
+    s16 = weight_state_wavefront[ws3_idx + 6 * blockDim.x + threadIdx.x];
+    s17 = weight_state_wavefront[ws3_idx + 7 * blockDim.x + threadIdx.x];
 
     __syncthreads();
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
@@ -1055,6 +1058,7 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
         bool block_cond = ((step<num_timestep) && (blockIdx.x < min(step+1, num_layer)*kNumBlockPerCell)) || 
             ((step>=num_timestep) && (blockIdx.x >= (step+1-num_timestep)*kNumBlockPerCell));
         if(block_cond){
+            const int wavefront_stride = (blockIdx.x / kNumBlockPerCell) * num_hidden;
             #pragma unroll
             for(int i=0; i<kNumInputGate; ++i){
                 // Input gate GEMV
@@ -1062,34 +1066,34 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
                 state_local_sum[i] = 0;
                 #pragma unroll
                 for(int j=0; j<kNumThreadIter; ++j){
-                    input_local_sum[i] += input_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + j * blockDim.x + threadIdx.x] * \
+                    input_local_sum[i] += input_wavefront[wavefront_stride + j * blockDim.x + threadIdx.x] * \
                         shared_input_weight[i * kNumRow * num_hidden + threadIdx.y * num_hidden + j * blockDim.x + threadIdx.x];
                     
                 }
                 if(i<2){
                     #pragma unroll
                     for(int j=0; j<kNumThreadIter; ++j){
-                        state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + j * blockDim.x + threadIdx.x] * \
+                        state_local_sum[i] += h_wavefront[wavefront_stride + j * blockDim.x + threadIdx.x] * \
                             shared_state_weight[i * kNumRow * num_hidden + threadIdx.y * num_hidden + j * blockDim.x + threadIdx.x];
                     }
                 }else if(i==2){
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 0 * blockDim.x + threadIdx.x] * s00;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 1 * blockDim.x + threadIdx.x] * s01;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 2 * blockDim.x + threadIdx.x] * s02;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 3 * blockDim.x + threadIdx.x] * s03;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 4 * blockDim.x + threadIdx.x] * s04;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 5 * blockDim.x + threadIdx.x] * s05;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 6 * blockDim.x + threadIdx.x] * s06;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 7 * blockDim.x + threadIdx.x] * s07;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 0 * blockDim.x + threadIdx.x] * s00;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 1 * blockDim.x + threadIdx.x] * s01;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 2 * blockDim.x + threadIdx.x] * s02;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 3 * blockDim.x + threadIdx.x] * s03;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 4 * blockDim.x + threadIdx.x] * s04;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 5 * blockDim.x + threadIdx.x] * s05;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 6 * blockDim.x + threadIdx.x] * s06;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 7 * blockDim.x + threadIdx.x] * s07;
                 }else if(i==3){
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 0 * blockDim.x + threadIdx.x] * s10;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 1 * blockDim.x + threadIdx.x] * s11;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 2 * blockDim.x + threadIdx.x] * s12;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 3 * blockDim.x + threadIdx.x] * s13;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 4 * blockDim.x + threadIdx.x] * s14;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 5 * blockDim.x + threadIdx.x] * s15;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 6 * blockDim.x + threadIdx.x] * s16;
-                    state_local_sum[i] += h_wavefront[(blockIdx.x / kNumBlockPerCell) * num_hidden + 7 * blockDim.x + threadIdx.x] * s17;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 0 * blockDim.x + threadIdx.x] * s10;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 1 * blockDim.x + threadIdx.x] * s11;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 2 * blockDim.x + threadIdx.x] * s12;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 3 * blockDim.x + threadIdx.x] * s13;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 4 * blockDim.x + threadIdx.x] * s14;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 5 * blockDim.x + threadIdx.x] * s15;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 6 * blockDim.x + threadIdx.x] * s16;
+                    state_local_sum[i] += h_wavefront[wavefront_stride + 7 * blockDim.x + threadIdx.x] * s17;
                 }
                 
                 #define FULL_MASK 0xffffffff
@@ -1111,35 +1115,35 @@ template<int batch, int num_layer, int num_hidden, int num_timestep>
             __threadfence_block();
             // Solve here
             if(threadIdx.x == 0){
-                float i = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 0 * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
-                float j = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 1 * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
-                float f = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 2 * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
-                float o = output_buffer[(blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden + 3 * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
-
-                c_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = 
-                    c_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] * sigmoid(f + 1.0) +
+                const int output_buffer_block_idx = (blockIdx.x/kNumBlockPerCell) * kNumInputGate * num_hidden;
+                const int output_buffer_thread_idx = (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y;
+                float i = output_buffer[output_buffer_block_idx + 0 * num_hidden + output_buffer_thread_idx];
+                float j = output_buffer[output_buffer_block_idx + 1 * num_hidden + output_buffer_thread_idx];
+                float f = output_buffer[output_buffer_block_idx + 2 * num_hidden + output_buffer_thread_idx];
+                float o = output_buffer[output_buffer_block_idx + 3 * num_hidden + output_buffer_thread_idx];
+                const int idx = (blockIdx.x / kNumBlockPerCell) * num_hidden + output_buffer_thread_idx;
+                c_wavefront[idx] = 
+                    c_wavefront[idx] * sigmoid(f + 1.0) +
                     sigmoid(i) * tanh(j);
-                h_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = 
-                    tanh(c_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + blockIdx.x % kNumBlockPerCell * kNumRow + threadIdx.y]) * sigmoid(o);
+                h_wavefront[idx] = 
+                    tanh(c_wavefront[idx]) * sigmoid(o);
                 
                 // Shift result for next timestep
                 if(blockIdx.x / kNumBlockPerCell < num_layer - 1){
-                    input_wavefront[(blockIdx.x / kNumBlockPerCell + 1) * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = h_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                    input_wavefront[idx + num_hidden] = h_wavefront[idx];
                 }
                 if(step<num_timestep && blockIdx.x<kNumBlockPerCell){
                     input_wavefront[blockIdx.x * kNumRow + threadIdx.y] = inputs_timestep[step*num_hidden + blockIdx.x * kNumRow + threadIdx.y];
                 }
                 if((step >= num_layer-1) && blockIdx.x / kNumBlockPerCell == (num_layer-1)){
-                   outputs_timestep[(step+1-num_layer)*num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = h_wavefront[blockIdx.x / kNumBlockPerCell * num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y];
+                   outputs_timestep[(step+1-num_layer)*num_hidden + (blockIdx.x % kNumBlockPerCell) * kNumRow + threadIdx.y] = h_wavefront[idx];
                 }
             }
+            __syncthreads();
         }
-
+        __syncthreads();
         __threadfence();
         grid.sync();
-        // if(step==9){
-        //     return;
-        // }
     }
 }
 

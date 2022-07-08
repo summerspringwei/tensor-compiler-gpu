@@ -10,7 +10,7 @@
 #include <cuda_runtime.h>
 #include <cuda_profiler_api.h>
 
-#include "../cuda_utils.h"
+#include "../../cuda_utils.h"
 #include "lstm_reuse_shared_memory.h"
 #include "lstm_utils.h"
 

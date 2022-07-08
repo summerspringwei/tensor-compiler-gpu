@@ -1,9 +1,12 @@
 
 // (128, 768), (768, 768) -> (128, 768)
 // dim3(4, 24,1), dim3(32,4,1)
+// dim3(96,1,1), dim3(128, 1, 1)
 extern "C" __global__ void __launch_bounds__(128)
     attn_fc(half* __restrict__ x, half* __restrict__ placeholder,
             half* __restrict__ T_dense) {
+    // block 32*32; 32x4=128, 32x24=768
+    // warp 8*32, 4 warps
   nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 8, 32, 16, half>
       T_dense_wmma_accumulator[1];
   __shared__ half x_shared[4352];// 32*136
@@ -19,7 +22,8 @@ const int threadIdx_y = threadIdx.x / 32;
                          nvcuda::wmma::col_major>
       placeholder_shared_wmma_matrix_b[1];
   (void)nvcuda::wmma::fill_fragment(T_dense_wmma_accumulator[0], 0.000000e+00f);
-  for (int k_outer_outer = 0; k_outer_outer < 6; ++k_outer_outer) {
+  // 768=6*128
+  for (int k_outer_outer = 0; k_outer_outer < 1; ++k_outer_outer) {
     __syncthreads();
     // x_shared input: 32*128
     // 1088 = 8*136, 272=2*136, 24576=32*768, 6144=8*768, 1536=2*768
@@ -55,8 +59,8 @@ const int threadIdx_y = threadIdx.x / 32;
                       ((((int)threadIdx_x) & 15) * 8)))))[0];
     }
     __syncthreads();
-    //1088=8*128
-    for (int k_outer_inner = 0; k_outer_inner < 8; ++k_outer_inner) {
+    //1088=8*128， m8n32k16 128=16*8
+    for (int k_outer_inner = 0; k_outer_inner < 1; ++k_outer_inner) {
       (void)nvcuda::wmma::load_matrix_sync(
           x_shared_wmma_matrix_a[0],
           ((half*)x_shared +
@@ -75,6 +79,7 @@ const int threadIdx_y = threadIdx.x / 32;
       ((half*)x_shared + ((((int)threadIdx_y) * 256))),
       T_dense_wmma_accumulator[0], 32, nvcuda::wmma::mem_row_major);
   __syncthreads();
+  // 8*32, 32threads, 
   ((uint4*)(T_dense +
             ((((((((int)blockIdx_x) * 24576) + (((int)threadIdx_y) * 6144)) +
                 ((((int)threadIdx_x) >> 2) * 768)) +
