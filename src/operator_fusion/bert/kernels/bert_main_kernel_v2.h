@@ -8,8 +8,9 @@
 #include "../../../cuda_utils.h"
 
 
+// Do pipeline optimization (doubl buffer and load next weight)
 extern "C" __global__ void __launch_bounds__(128)
-    bert_attn_kernel(const half* __restrict__ x, const half* __restrict__ placeholder,
+    bert_attn_kernel_v2(const half* __restrict__ x, const half* __restrict__ placeholder,
                     half* __restrict__ T_dense, 
                     half* __restrict__ query, half* __restrict__ key, half* __restrict__ value,
                     half* __restrict__ query_key_output, float* __restrict__ sum,
@@ -21,6 +22,8 @@ extern "C" __global__ void __launch_bounds__(128)
   // (128, 768) * (3*768, 768) -> (128, 3*768=2304)
   // each block computes (32, 64), each warp compute (32, 32)
   // Begin of fused_attn_qkv_matmul_transpose_kernel_v2, dim3(4, 36,1), dim3(32,2,1)
+  // To large if we both double buffer input(4352*sizeof(half)) and weight(8704*sizeof(half))
+  // so we only buffer weight
   if(blockIdx.x < 4*36){
     int blockIdx_x = (blockIdx.x % 4);
     int blockIdx_y = (blockIdx.x / 4);
@@ -32,7 +35,11 @@ extern "C" __global__ void __launch_bounds__(128)
         T_dense_wmma_accumulator[4];
     half* x_shared = (half*)&shared_buff_fused[0]; 
     half* placeholder_shared = (half*)&shared_buff_fused[4352];
-    
+    half* x_shared2 = (half*)&shared_buff_fused[13056];
+    half* placeholder_shared2 = (half*)&shared_buff_fused[17408];
+    half* double_buff_x_shared[] = {x_shared, x_shared2};
+    half* double_buff_placeholder_shared[] = {placeholder_shared, placeholder_shared2};
+
     nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16, half,
                           nvcuda::wmma::row_major>
         x_shared_wmma_matrix_a[1];
@@ -44,53 +51,91 @@ extern "C" __global__ void __launch_bounds__(128)
         (void)nvcuda::wmma::fill_fragment(T_dense_wmma_accumulator[j_c_outer_init],
                                           0.000000e+00f);
       }
+    
+      pipe.producer_acquire();
+      // Copy for k_outer_outer==0
+      for (int ax0_ax1_fused_outer_outer_outer_outer = 0;
+              ax0_ax1_fused_outer_outer_outer_outer < 8;
+              ++ax0_ax1_fused_outer_outer_outer_outer) {
+        cuda::memcpy_async((double_buff_x_shared[0] + (((((ax0_ax1_fused_outer_outer_outer_outer * 544) +
+                                    (((int)threadIdx_y) * 272)) +
+                                    ((((int)threadIdx_x) >> 4) * 136)) +
+                                  ((((int)threadIdx_x) & 15) * 8)))),
+                        (x + (((((((((int)blockIdx_x) * 24576) +
+                                    (ax0_ax1_fused_outer_outer_outer_outer * 3072)) +
+                                  (((int)threadIdx_y) * 1536)) +
+                                  ((((int)threadIdx_x) >> 4) * 768)) +
+                                (/*k_outer_outer*/ 0 * 128)) +
+                                ((((int)threadIdx_x) & 15) * 8)))), shape, pipe);
+      }
+      for (int ax0_ax1_fused_outer_outer_outer_outer1 = 0;
+              ax0_ax1_fused_outer_outer_outer_outer1 < 16;
+              ++ax0_ax1_fused_outer_outer_outer_outer1) {
+        cuda::memcpy_async((double_buff_placeholder_shared[0] +
+                      (((((ax0_ax1_fused_outer_outer_outer_outer1 * 544) +
+                          (((int)threadIdx_y) * 272)) +
+                        ((((int)threadIdx_x) >> 4) * 136)) +
+                        ((((int)threadIdx_x) & 15) * 8)))),
+                        (placeholder +
+                          (((((((((int)blockIdx_y) * 49152) +
+                                (ax0_ax1_fused_outer_outer_outer_outer1 * 3072)) +
+                              (((int)threadIdx_y) * 1536)) +
+                              ((((int)threadIdx_x) >> 4) * 768)) +
+                            (/*k_outer_outer*/0 * 128)) +
+                            ((((int)threadIdx_x) & 15) * 8)))), shape, pipe);
+      }
+      pipe.producer_commit();
     }
-    for (int k_outer_outer = 0; k_outer_outer < 6; ++k_outer_outer) {
+    // Note k_outer_outer start from 1
+    for (int k_outer_outer = 1; k_outer_outer < 6; ++k_outer_outer) {
       __syncthreads();
       if(threadIdx.x < 32 * 2){
+        pipe.producer_acquire();
         for (int ax0_ax1_fused_outer_outer_outer_outer = 0;
-            ax0_ax1_fused_outer_outer_outer_outer < 8;
-            ++ax0_ax1_fused_outer_outer_outer_outer) {
-          ((uint4*)(x_shared + (((((ax0_ax1_fused_outer_outer_outer_outer * 544) +
-                                  (((int)threadIdx_y) * 272)) +
-                                  ((((int)threadIdx_x) >> 4) * 136)) +
-                                ((((int)threadIdx_x) & 15) * 8)))))[0] =
-              ((uint4*)(x + (((((((((int)blockIdx_x) * 24576) +
-                                  (ax0_ax1_fused_outer_outer_outer_outer * 3072)) +
+                ax0_ax1_fused_outer_outer_outer_outer < 8;
+                ++ax0_ax1_fused_outer_outer_outer_outer) {
+          cuda::memcpy_async((double_buff_x_shared[k_outer_outer % 2] + (((((ax0_ax1_fused_outer_outer_outer_outer * 544) +
+                                      (((int)threadIdx_y) * 272)) +
+                                      ((((int)threadIdx_x) >> 4) * 136)) +
+                                    ((((int)threadIdx_x) & 15) * 8)))),
+                          (x + (((((((((int)blockIdx_x) * 24576) +
+                                      (ax0_ax1_fused_outer_outer_outer_outer * 3072)) +
+                                    (((int)threadIdx_y) * 1536)) +
+                                    ((((int)threadIdx_x) >> 4) * 768)) +
+                                  (k_outer_outer * 128)) +
+                                  ((((int)threadIdx_x) & 15) * 8)))), shape, pipe);
+        }
+        for (int ax0_ax1_fused_outer_outer_outer_outer1 = 0;
+                ax0_ax1_fused_outer_outer_outer_outer1 < 16;
+                ++ax0_ax1_fused_outer_outer_outer_outer1) {
+          cuda::memcpy_async((double_buff_placeholder_shared[k_outer_outer % 2] +
+                        (((((ax0_ax1_fused_outer_outer_outer_outer1 * 544) +
+                            (((int)threadIdx_y) * 272)) +
+                          ((((int)threadIdx_x) >> 4) * 136)) +
+                          ((((int)threadIdx_x) & 15) * 8)))),
+                          (placeholder +
+                            (((((((((int)blockIdx_y) * 49152) +
+                                  (ax0_ax1_fused_outer_outer_outer_outer1 * 3072)) +
                                 (((int)threadIdx_y) * 1536)) +
                                 ((((int)threadIdx_x) >> 4) * 768)) +
                               (k_outer_outer * 128)) +
-                              ((((int)threadIdx_x) & 15) * 8)))))[0];
+                              ((((int)threadIdx_x) & 15) * 8)))), shape, pipe);
         }
-        for (int ax0_ax1_fused_outer_outer_outer_outer1 = 0;
-            ax0_ax1_fused_outer_outer_outer_outer1 < 16;
-            ++ax0_ax1_fused_outer_outer_outer_outer1) {
-          ((uint4*)(placeholder_shared +
-                    (((((ax0_ax1_fused_outer_outer_outer_outer1 * 544) +
-                        (((int)threadIdx_y) * 272)) +
-                      ((((int)threadIdx_x) >> 4) * 136)) +
-                      ((((int)threadIdx_x) & 15) * 8)))))[0] =
-              ((uint4*)(placeholder +
-                        (((((((((int)blockIdx_y) * 49152) +
-                              (ax0_ax1_fused_outer_outer_outer_outer1 * 3072)) +
-                            (((int)threadIdx_y) * 1536)) +
-                            ((((int)threadIdx_x) >> 4) * 768)) +
-                          (k_outer_outer * 128)) +
-                          ((((int)threadIdx_x) & 15) * 8)))))[0];
-        }
+        pipe.producer_commit();
       }
       __syncthreads();
       if(threadIdx.x < 32 * 2){
+        pipe.consumer_wait();
         for (int k_outer_inner = 0; k_outer_inner < 8; ++k_outer_inner) {
           (void)nvcuda::wmma::load_matrix_sync(
               x_shared_wmma_matrix_a[0],
-              ((half*)x_shared +
+              ((half*)double_buff_x_shared[(k_outer_outer-1)%2] +
               (((((int)threadIdx_y) * 2176) + (k_outer_inner * 16)))),
               136);
           for (int ax0_outer = 0; ax0_outer < 4; ++ax0_outer) {
             (void)nvcuda::wmma::load_matrix_sync(
                 placeholder_shared_wmma_matrix_b[ax0_outer],
-                ((half*)placeholder_shared +
+                ((half*)double_buff_placeholder_shared[(k_outer_outer-1)%2] +
                 (((ax0_outer * 2176) + (k_outer_inner * 16)))),
                 136);
           }
@@ -101,8 +146,36 @@ extern "C" __global__ void __launch_bounds__(128)
                 T_dense_wmma_accumulator[j_c_outer]);
           }
         }
+        pipe.consumer_release();
       }
     }
+    // Drain the pipeline
+    __syncthreads();
+    if(threadIdx.x < 32 * 2){
+      pipe.consumer_wait();
+      for (int k_outer_inner = 0; k_outer_inner < 8; ++k_outer_inner) {
+        (void)nvcuda::wmma::load_matrix_sync(
+            x_shared_wmma_matrix_a[0],
+            ((half*)double_buff_x_shared[(6-1)%2] +
+            (((((int)threadIdx_y) * 2176) + (k_outer_inner * 16)))),
+            136);
+        for (int ax0_outer = 0; ax0_outer < 4; ++ax0_outer) {
+          (void)nvcuda::wmma::load_matrix_sync(
+              placeholder_shared_wmma_matrix_b[ax0_outer],
+              ((half*)double_buff_placeholder_shared[(6-1)%2] +
+              (((ax0_outer * 2176) + (k_outer_inner * 16)))),
+              136);
+        }
+        for (int j_c_outer = 0; j_c_outer < 4; ++j_c_outer) {
+          (void)nvcuda::wmma::mma_sync(
+              T_dense_wmma_accumulator[j_c_outer], x_shared_wmma_matrix_a[0],
+              placeholder_shared_wmma_matrix_b[j_c_outer],
+              T_dense_wmma_accumulator[j_c_outer]);
+        }
+      }
+      pipe.consumer_release();
+    }
+
     __syncthreads();
     if(threadIdx.x < 32 * 2){
       for (int ax1_outer_inner = 0; ax1_outer_inner < 4; ++ax1_outer_inner) {
@@ -523,7 +596,6 @@ extern "C" __global__ void __launch_bounds__(128)
     // shared shape (32, 32), each thread compute half2, 16 threads compute a row, 128 threads compute 8 row
     if(threadIdx.x < 128){
       pipe.consumer_wait();
-      pipe.consumer_release();
       const int num_iter = 32 / 8;
       for(int i=0; i<num_iter;++i){
         int row = (i << 3) + (threadIdx_y << 1) + (threadIdx_x >> 4);
@@ -531,6 +603,7 @@ extern "C" __global__ void __launch_bounds__(128)
         int s_addr = (row << 5) + col;
         ((half2*)(x_shared+s_addr))[0] = ((half2*)(x_shared+s_addr))[0] + ((half2*)(short_cut_shared+s_addr))[0];
       }
+      pipe.consumer_release();
     }
     __syncthreads();
     

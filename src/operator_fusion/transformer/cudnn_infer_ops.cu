@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <chrono>
+#include <vector>
 
 #include <cudnn.h>
 #include <cuda_fp16.h>
@@ -21,22 +22,32 @@
   } \
 }
 
-void bench_softmax(){
-  half *input = new half[614656];
-  half *output = new half[614656];
+int64_t get_shape_size(std::vector<int64_t> shape){
+  int64_t acc = 1;
+  for(auto s: shape){
+    acc *= s;
+  }
+  return acc;
+}
+
+// Old implementation for swin-transformer with shape (64, 4, 49, 49)
+void bench_softmax(std::vector<int64_t> shape){
+  const int shape_size = get_shape_size(shape);
+  half *input = new half[shape_size];
+  half *output = new half[shape_size];
 
   cudaError_t err = cudaSuccess;
   half *d_input=NULL;
   half *d_output=NULL;
   half *d_alpha=NULL;
   half *d_beta=NULL;
-  err=cudaMalloc((void **)&d_input, sizeof(half)*614656);
-  err=cudaMalloc((void **)&d_output, sizeof(half)*614656);
+  err=cudaMalloc((void **)&d_input, sizeof(half)*shape_size);
+  err=cudaMalloc((void **)&d_output, sizeof(half)*shape_size);
 
-  cudaMemcpy(d_input, input, sizeof(half)*614656, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_input, input, sizeof(half)*shape_size, cudaMemcpyHostToDevice);
 
   cudaDeviceSynchronize();
-  cudaMemcpy(output, d_output, sizeof(half)*614656, cudaMemcpyDeviceToHost);
+  cudaMemcpy(output, d_output, sizeof(half)*shape_size, cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
 
   if (err != cudaSuccess){
@@ -51,10 +62,10 @@ void bench_softmax(){
   cudnnCreateTensorDescriptor(&y_desc);
   cudnnSetTensor4dDescriptor(
         x_desc, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF,
-        64, 4, 49, 49);
+        shape[0], shape[1], shape[2], shape[3]);
   cudnnSetTensor4dDescriptor(
         y_desc, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF,
-        64, 4, 49, 49);
+        shape[0], shape[1], shape[2], shape[3]);
   int loop=10000;
   half alpha=1.0, beta=0.0;
   cudaEvent_t startEvent, stopEvent;
@@ -281,7 +292,7 @@ void bench_FFN_fc2(int batch_size, int height, int width, int channel){
 
 
 int main(){
-  // bench_softmax();
+  bench_softmax({1, 1, 128, 768});
   // bench_query_key();
   // bench_qvk_matmul(1, 64, 64, 128);
   // bench_qvk_matmul(1, 32, 32, 256);
@@ -292,7 +303,7 @@ int main(){
   // bench_FFN_fc1(1, 16, 16, 512);
   // bench_FFN_fc1(1, 8, 8, 1024);
   // For nerf model
-  bench_matmul<half>(108*4*16, 256, 256);
+  // bench_matmul<half>(108*4*16, 256, 256);
   // bench_matmul<half>(65536, 256, 256);
   // bench_FFN_fc2(1, 64, 64, 128);
   // bench_FFN_fc2(1, 32, 32, 256);

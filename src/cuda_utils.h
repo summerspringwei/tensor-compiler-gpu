@@ -28,4 +28,24 @@ half warpReduceSum(half val) {
   return val;
 }
 
+
+// void my_compare(half* src, half* dst, int m, int n, float rotl, float aotl){
+//   int error_cnt = 0;
+//   for(int i=0; i<m; ++i){
+//     for(int j=0; j<n; ++j){
+//       float a = __half2float(src[i*n+j]);
+//       float b = __half2float(dst[i*n+j]);
+//       if(std::abs(a - b) > 
+//         rotl * std::abs(a) + aotl){
+//         printf("diff: <%d, %d> %f %f\n", i, j, a, b);
+//         error_cnt++;
+//         if(error_cnt > 100000){
+//           return;
+//         }
+//       }
+//     }
+//   }
+// }
+
+
 #endif
