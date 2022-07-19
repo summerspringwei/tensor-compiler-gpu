@@ -18,6 +18,8 @@ extern "C" __global__ void __launch_bounds__(128)
                     half* attn_fc_output, float* __restrict__ variance, half eps, half gama, half beta) {
   extern half __shared__ shared_buff_fused[];
   cooperative_groups::grid_group grid = cooperative_groups::this_grid();
+  cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
+  const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
 
   // (128, 768) * (3*768, 768) -> (128, 3*768=2304)
   // each block computes (32, 64), each warp compute (32, 32)
@@ -29,8 +31,7 @@ extern "C" __global__ void __launch_bounds__(128)
     int blockIdx_y = (blockIdx.x / 4);
     int threadIdx_x = threadIdx.x % 32;
     int threadIdx_y = threadIdx.x / 32;
-    cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
-    const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
+    
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, half>
         T_dense_wmma_accumulator[4];
     half* x_shared = (half*)&shared_buff_fused[0]; 
@@ -293,17 +294,55 @@ extern "C" __global__ void __launch_bounds__(128)
           (void)nvcuda::wmma::fill_fragment(fused_query_key_matmul_softmax_compute_wmma_accumulator[((i_c_outer_init * 2) + j_c_outer_init)], 0.000000e+00f);
         }
       }
+      // Can not move forward as they rely on the previous outputs
+      pipe.producer_acquire();
       for (int ax1_ax2_fused_outer_outer_outer_outer = 0; ax1_ax2_fused_outer_outer_outer_outer < 8; ++ax1_ax2_fused_outer_outer_outer_outer) {
-        ((uint4*)(fused_query_key_matmul_softmax_x_shared + ((((ax1_ax2_fused_outer_outer_outer_outer * 544) + ((((int)threadIdx_x) >> 3) * 136)) + ((((int)threadIdx_x) & 7) * 8)))))[0] = 
-          ((uint4*)(query + (((((((int)blockIdx_z) * 8192) + (((int)blockIdx_x) * 2048)) + (ax1_ax2_fused_outer_outer_outer_outer * 256)) + (((int)threadIdx_x) * 8)))))[0];
+        cuda::memcpy_async((fused_query_key_matmul_softmax_x_shared + 
+                      ((((ax1_ax2_fused_outer_outer_outer_outer * 544) + 
+                      ((((int)threadIdx_x) >> 3) * 136)) + ((((int)threadIdx_x) & 7) * 8)))), 
+                      (query + (((((((int)blockIdx_z) * 8192) + (((int)blockIdx_x) * 2048)) + 
+                      (ax1_ax2_fused_outer_outer_outer_outer * 256)) + (((int)threadIdx_x) * 8)))), shape, pipe);
       }
       for (int ax1_ax2_fused_outer_outer_outer_outer1 = 0; ax1_ax2_fused_outer_outer_outer_outer1 < 8; ++ax1_ax2_fused_outer_outer_outer_outer1) {
-        ((uint4*)(fused_query_key_matmul_softmax_placeholder_shared + ((((ax1_ax2_fused_outer_outer_outer_outer1 * 544) + ((((int)threadIdx_x) >> 3) * 136)) + ((((int)threadIdx_x) & 7) * 8)))))[0] = 
-          ((uint4*)(key + (((((((int)blockIdx_z) * 8192) + (((int)blockIdx_y) * 2048)) + (ax1_ax2_fused_outer_outer_outer_outer1 * 256)) + (((int)threadIdx_x) * 8)))))[0];
+        cuda::memcpy_async((fused_query_key_matmul_softmax_placeholder_shared + 
+                    ((((ax1_ax2_fused_outer_outer_outer_outer1 * 544) + 
+                    ((((int)threadIdx_x) >> 3) * 136)) + ((((int)threadIdx_x) & 7) * 8)))), 
+                    (key + (((((((int)blockIdx_z) * 8192) + (((int)blockIdx_y) * 2048)) + 
+                    (ax1_ax2_fused_outer_outer_outer_outer1 * 256)) + (((int)threadIdx_x) * 8)))),shape, pipe);
       }
+      pipe.producer_commit();
     }
+    pipe.consumer_wait();
+    pipe.consumer_release();
     __syncthreads();
     if(threadIdx.x < 32){
+      // Load for attn_value_matmul, with 192 blocks and 32 threads
+      // x_shared: 2176, placeholder_shared: 4352, remember the offset in extern_shared_buff
+      // Now the shared memory is used [0:8704]
+      {
+        // Note block/thread mapping
+        const int blockIdx_x = (blockIdx.x % 8);
+        const int blockIdx_y = ((blockIdx.x / 8) % 2);
+        const int blockIdx_z = (blockIdx.x / (2*8));
+        const int threadIdx_x = threadIdx.x % 32;
+        half* x_shared = (half*)&shared_buff_fused[8704];
+        half* placeholder_shared = (half*)&shared_buff_fused[8704+2176];
+        pipe.producer_acquire();
+        for (int ax1_ax2_fused_outer_outer_outer_outer1 = 0;
+            ax1_ax2_fused_outer_outer_outer_outer1 < 16;
+            ++ax1_ax2_fused_outer_outer_outer_outer1) {
+          cuda::memcpy_async((placeholder_shared +
+                    ((((ax1_ax2_fused_outer_outer_outer_outer1 * 272) +
+                      ((((int)threadIdx_x) >> 4) * 136)) +
+                      ((((int)threadIdx_x) & 15) * 8)))), 
+                    (value +
+                        (((((((int)blockIdx_z) * 8192) + (((int)blockIdx_y) * 4096)) +
+                          (ax1_ax2_fused_outer_outer_outer_outer1 * 256)) +
+                          (((int)threadIdx_x) * 8)))), shape, pipe);
+        }
+        pipe.producer_commit();
+      }
+
       for (int k_outer_inner = 0; k_outer_inner < 4; ++k_outer_inner) {
         for (int ax1_outer = 0; ax1_outer < 2; ++ax1_outer) {
           (void)nvcuda::wmma::load_matrix_sync(fused_query_key_matmul_softmax_x_shared_wmma_matrix_a[ax1_outer], ((half *)fused_query_key_matmul_softmax_x_shared + (((ax1_outer * 2176) + (k_outer_inner * 16)))), 136);
@@ -392,11 +431,13 @@ extern "C" __global__ void __launch_bounds__(128)
     const int blockIdx_y = ((blockIdx.x / 8) % 2);
     const int blockIdx_z = (blockIdx.x / (2*8));
     const int threadIdx_x = threadIdx.x % 32;
-    cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
+    // cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
     const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
-    pipe.producer_acquire();
-    half* x_shared = &(shared_buff_fused[0]);
-    half* placeholder_shared = &(shared_buff_fused[2176]);
+    // Note: we use offset to identify the shared memory for different operator
+    half* x_shared = (half*)&shared_buff_fused[8704];
+    half* placeholder_shared = (half*)&shared_buff_fused[8704+2176];
+    // half* x_shared = &(shared_buff_fused[0]);
+    // half* placeholder_shared = &(shared_buff_fused[2176]);
     // __shared__ half x_shared[2176];
     // __shared__ half placeholder_shared[4352];
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, half>
@@ -412,29 +453,36 @@ extern "C" __global__ void __launch_bounds__(128)
         (void)nvcuda::wmma::fill_fragment(compute_wmma_accumulator[j_c_outer_init],
                                           0.000000e+00f);
       }
+      // Load for attn_value_matmul, with 192 blocks and 32 threads
+      // x_shared: 2176, placeholder_shared: 4352, remember the offset in extern_shared_buff
+      pipe.producer_acquire();
       for (int ax1_ax2_fused_outer_outer_outer_outer = 0;
           ax1_ax2_fused_outer_outer_outer_outer < 8;
           ++ax1_ax2_fused_outer_outer_outer_outer) {
-        ((uint4*)(x_shared + ((((ax1_ax2_fused_outer_outer_outer_outer * 272) +
+        cuda::memcpy_async((x_shared + ((((ax1_ax2_fused_outer_outer_outer_outer * 272) +
                                 ((((int)threadIdx_x) >> 4) * 136)) +
-                              ((((int)threadIdx_x) & 15) * 8)))))[0] =
-            ((uint4*)(query_key_output + (((((((int)blockIdx_z) * 16384) +
+                              ((((int)threadIdx_x) & 15) * 8)))), 
+                            (query_key_output + (((((((int)blockIdx_z) * 16384) +
                               (((int)blockIdx_x) * 2048)) +
                             (ax1_ax2_fused_outer_outer_outer_outer * 256)) +
-                            (((int)threadIdx_x) * 8)))))[0];
+                            (((int)threadIdx_x) * 8)))), shape, pipe);
       }
-      for (int ax1_ax2_fused_outer_outer_outer_outer1 = 0;
-          ax1_ax2_fused_outer_outer_outer_outer1 < 16;
-          ++ax1_ax2_fused_outer_outer_outer_outer1) {
-        ((uint4*)(placeholder_shared +
-                  ((((ax1_ax2_fused_outer_outer_outer_outer1 * 272) +
-                    ((((int)threadIdx_x) >> 4) * 136)) +
-                    ((((int)threadIdx_x) & 15) * 8)))))[0] =
-            ((uint4*)(value +
-                      (((((((int)blockIdx_z) * 8192) + (((int)blockIdx_y) * 4096)) +
-                        (ax1_ax2_fused_outer_outer_outer_outer1 * 256)) +
-                        (((int)threadIdx_x) * 8)))))[0];
-      }
+      pipe.producer_commit();
+      pipe.consumer_wait();
+      // for (int ax1_ax2_fused_outer_outer_outer_outer1 = 0;
+      //     ax1_ax2_fused_outer_outer_outer_outer1 < 16;
+      //     ++ax1_ax2_fused_outer_outer_outer_outer1) {
+      //   cuda::memcpy_async((placeholder_shared +
+      //             ((((ax1_ax2_fused_outer_outer_outer_outer1 * 272) +
+      //               ((((int)threadIdx_x) >> 4) * 136)) +
+      //               ((((int)threadIdx_x) & 15) * 8)))), 
+      //             (value +
+      //                 (((((((int)blockIdx_z) * 8192) + (((int)blockIdx_y) * 4096)) +
+      //                   (ax1_ax2_fused_outer_outer_outer_outer1 * 256)) +
+      //                   (((int)threadIdx_x) * 8)))), shape, pipe);
+      // }
+      // pipe.producer_commit();
+      pipe.consumer_wait();
     }
     __syncthreads();
     if(threadIdx.x < 32){
@@ -457,6 +505,8 @@ extern "C" __global__ void __launch_bounds__(128)
         }
       }
     }
+    pipe.consumer_release();
+    pipe.consumer_release();
     __syncthreads();
     if(threadIdx.x<32){
       for (int ax2_outer_inner = 0; ax2_outer_inner < 2; ++ax2_outer_inner) {
@@ -467,6 +517,7 @@ extern "C" __global__ void __launch_bounds__(128)
       }
     }
     __syncthreads();
+    pipe.producer_acquire();
     if(threadIdx.x<32){
       // Do transpose (12, 128, 64) to (128, 12, 64), reshape to (128, 768)
       // x_shared shape: (16, 32) x (8, 2) = (128, 64)

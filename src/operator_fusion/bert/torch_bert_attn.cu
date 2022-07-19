@@ -15,20 +15,9 @@
 #include "kernels/bert_main_kernel.h"
 #include "kernels/bert_main_kernel_v2.h"
 #include "kernels/bert_attn_fc.h"
+#include "kernels/bert_fused_fc_fc_v2.h"
+#include "kernels/bert_fused_fc_fc.h"
 
-void check_compatability(int numThreads, int sharedMemSize, void* cuda_kernel){
-  int dev = 0;
-  int supportsCoopLaunch = 0;
-  cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, dev);
-  if(supportsCoopLaunch){
-    printf("Device support CoopLaunch\n");
-  }
-  cudaDeviceProp deviceProp; \
-  cudaGetDeviceProperties(&deviceProp, dev); \
-  int numBlocksPerSm;
-  cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, cuda_kernel, numThreads, sharedMemSize); 
-  printf("fused_fc_fc: OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);
-}
 
 template<int64_t batch_size, int64_t num_heads, int64_t max_seq_length, int64_t hidden_size>
 float test_bert_attn(int round_cout=1, int loop=1){
@@ -63,6 +52,12 @@ float test_bert_attn(int round_cout=1, int loop=1){
   auto weight_qkv = torch::nn::init::uniform_(
     torch::randn({num_heads*hidden_size*3, num_heads*hidden_size}, options_fp16),
     -1.0/scale, 1.0/scale);
+  auto weight_feed_forward_fc1 = torch::nn::init::uniform_(
+    torch::randn({num_heads*hidden_size*4, num_heads*hidden_size}, options_fp16),
+    -1.0/scale, 1.0/scale);
+  auto weight_feed_forward_fc2 = torch::nn::init::uniform_(
+    torch::randn({num_heads*hidden_size, num_heads*hidden_size*4}, options_fp16),
+    -1.0/scale, 1.0/scale);
   // auto attn_fc_weight = torch::nn::init::uniform_(
   //   torch::randn({num_heads*hidden_size, num_heads*hidden_size}, options_fp16),
   //   -1.0/scale, 1.0/scale);
@@ -96,6 +91,12 @@ float test_bert_attn(int round_cout=1, int loop=1){
   auto t_attn_fc_output = torch::add(src, t_attn_fc_output_tmp);
   auto t_reduce_sum = torch::sum(t_attn_fc_output, 1, false, torch::kFloat32);
   auto t_attn_layer_norm_output = torch::layer_norm(t_attn_fc_output, {768,});
+  // Feed forward
+  auto t_feed_forward_fc1_output = torch::matmul(t_attn_layer_norm_output, torch::permute(weight_feed_forward_fc1, {1, 0}));
+  auto t_feed_forward_fc2_output = torch::matmul(t_feed_forward_fc1_output, torch::permute(weight_feed_forward_fc2, {1, 0}));
+  auto t_feed_forward_short_cut_output = torch::add(t_feed_forward_fc2_output, t_attn_layer_norm_output);
+  auto t_feed_forward_layer_norm_output = torch::layer_norm(t_feed_forward_short_cut_output, {768,});
+
 
   // Our implementation
   auto output_qkv = torch::zeros({batch_size*max_seq_length, num_heads*hidden_size*3}, options_fp16);
@@ -109,6 +110,8 @@ float test_bert_attn(int round_cout=1, int loop=1){
   auto single_attn_fc_output = torch::zeros({batch_size * max_seq_length, num_heads * hidden_size}, options_fp16);
   auto inter_attn_fc_output = torch::zeros({batch_size * max_seq_length, num_heads * hidden_size}, options_fp16);
   auto variance = torch::zeros({batch_size * max_seq_length,}, options_fp32);
+  auto feed_forward_fc1_output = torch::zeros({batch_size * max_seq_length, num_heads * hidden_size * 4}, options_fp16);
+  auto feed_forward_fc2_output = torch::zeros({batch_size * max_seq_length, num_heads * hidden_size}, options_fp16);
 
 
   at::Half* ptr_src = src.data<at::Half>();
@@ -127,6 +130,10 @@ float test_bert_attn(int round_cout=1, int loop=1){
   at::Half* ptr_attn_fc_output = attn_fc_output.data<at::Half>();
   float* ptr_variance = variance.data<float>();
   half eps = 0.00001, gama=1, beta = 0;
+  at::Half* ptr_weight_feed_forward_fc1 = weight_feed_forward_fc1.data<at::Half>();
+  at::Half* ptr_feed_forward_fc1_output = feed_forward_fc1_output.data<at::Half>();
+  at::Half* ptr_weight_feed_forward_fc2 = weight_feed_forward_fc2.data<at::Half>();
+  at::Half* ptr_feed_forward_fc2_output = feed_forward_fc2_output.data<at::Half>();
 
   // pointers from pytorch
   at::Half* t_ptr_attn_value_output = t_attn_value_output_permuted.data<at::Half>();
@@ -146,11 +153,28 @@ float test_bert_attn(int round_cout=1, int loop=1){
   void * single_attn_fc_kernel_args[] = {
     (void *)&(ptr_attn_value_output), (void *)&(ptr_attn_fc_weight), (void *)&(ptr_single_attn_fc_output)
   };
+
+  void * fused_feed_forward_kernel_args[] = {
+    (void *)&(ptr_attn_fc_output), (void *)&(ptr_weight_feed_forward_fc1), 
+    (void *)&(ptr_feed_forward_fc1_output), (void *)&(ptr_weight_feed_forward_fc2), 
+    (void *)&(ptr_feed_forward_fc2_output),
+    (void *)&(ptr_sum), (void *)&(ptr_variance), 
+    (void *)&(eps), (void *)&(gama), (void *)&(beta)
+  };
+
   cudaFuncSetAttribute((void*)bert_attn_kernel_v2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, 66*1024);
+  cudaFuncSetAttribute((void*)fused_fc_fc_v4, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, 66*1024);
+  cudaFuncSetAttribute((void*)fused_fc_fc_v5, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, 66*1024);
   check_compatability(128, 26112 * sizeof(half), (void*)bert_attn_kernel_v2);
+
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn", [&]{
     // checkCuda(cudaLaunchCooperativeKernel((void*)bert_attn_kernel, dim3(192, 1,1), dim3(32*4,1,1), fused_kernel_args, 13056 * sizeof(half)));
-    checkCuda(cudaLaunchCooperativeKernel((void*)bert_attn_kernel_v2, dim3(192, 1,1), dim3(32*4,1,1), fused_kernel_args, 26112 * sizeof(half))); 
+    // checkCuda(cudaLaunchCooperativeKernel((void*)bert_attn_kernel_v2, dim3(192, 1,1), dim3(32*4,1,1), fused_kernel_args, 26112 * sizeof(half))); 
+
+    // checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v3, dim3(192, 1, 1), dim3(128, 1, 1), fused_feed_forward_kernel_args, 13056 * sizeof(half)));
+    // checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v4, dim3(192, 1, 1), dim3(128, 1, 1), fused_feed_forward_kernel_args, 26112 * sizeof(half)));
+    // checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v5, dim3(192, 1, 1), dim3(128, 1, 1), fused_feed_forward_kernel_args, 26112 * sizeof(half)));
+    checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v6, dim3(192, 1, 1), dim3(128, 1, 1), fused_feed_forward_kernel_args, (8704+8704+4352) * sizeof(half)));
   });
   // AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_fc", [&]{
   //   checkCuda(cudaLaunchCooperativeKernel((void*)attn_fc, dim3(96, 1,1), dim3(32*4,1,1), single_attn_fc_kernel_args, 13056 * sizeof(half)));
@@ -190,20 +214,20 @@ float test_bert_attn(int round_cout=1, int loop=1){
   
   // my_compare(attn_fc_output.cpu().data<at::Half>(), t_attn_layer_norm_output.cpu().data<at::Half>(), 128, 768, 1.0/16, 1.0/1024);
   // Check result
-  assert(torch::allclose(
-    torch::reshape(output_qkv, shape_output_qkv), 
-    torch::reshape(t_output_qkv, shape_output_qkv), 1.0/16, 1.0/1024));
-  assert(torch::allclose(query, t_query, 1.0/16, 1.0/1024));
-  assert(torch::allclose(key, t_key, 1.0/16, 1.0/1024));
-  assert(torch::allclose(value, t_value, 1.0/16, 1.0/1024));
-  assert(torch::allclose(query_key_output, t_query_key_output, 1.0/16, 1.0/1024));
-  assert(torch::allclose(
-    torch::reshape(attn_value_output, {max_seq_length, num_heads * hidden_size}), 
-    t_attn_value_output_permuted, 1.0/16, 1.0/1024));
-  assert(torch::allclose(attn_fc_weight, t_attn_fc_weight, 1.0/16, 1.0/1024));
-  // assert(torch::allclose(t_attn_fc_output_tmp, single_attn_fc_output, 1.0/16, 1.0/1024));
-  // assert(torch::allclose(inter_attn_fc_output, t_attn_fc_output, 1.0/16, 1.0/1024));
-  assert(torch::allclose(attn_fc_output, t_attn_layer_norm_output, 1.0/16, 1.0/1024));
+  // assert(torch::allclose(
+  //   torch::reshape(output_qkv, shape_output_qkv), 
+  //   torch::reshape(t_output_qkv, shape_output_qkv), 1.0/16, 1.0/1024));
+  // assert(torch::allclose(query, t_query, 1.0/16, 1.0/1024));
+  // assert(torch::allclose(key, t_key, 1.0/16, 1.0/1024));
+  // assert(torch::allclose(value, t_value, 1.0/16, 1.0/1024));
+  // assert(torch::allclose(query_key_output, t_query_key_output, 1.0/16, 1.0/1024));
+  // assert(torch::allclose(
+  //   torch::reshape(attn_value_output, {max_seq_length, num_heads * hidden_size}), 
+  //   t_attn_value_output_permuted, 1.0/16, 1.0/1024));
+  // assert(torch::allclose(attn_fc_weight, t_attn_fc_weight, 1.0/16, 1.0/1024));
+  // // assert(torch::allclose(t_attn_fc_output_tmp, single_attn_fc_output, 1.0/16, 1.0/1024));
+  // // assert(torch::allclose(inter_attn_fc_output, t_attn_fc_output, 1.0/16, 1.0/1024));
+  // assert(torch::allclose(attn_fc_output, t_attn_layer_norm_output, 1.0/16, 1.0/1024));
 
   // Benchmark
   cudaEvent_t startEvent, stopEvent;
@@ -225,7 +249,13 @@ float test_bert_attn(int round_cout=1, int loop=1){
     for(int i=0; i<loop; ++i){
       checkCuda( cudaEventRecord(startEvent,0) );
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn", [&]{
-        checkCuda(cudaLaunchCooperativeKernel((void*)bert_attn_kernel, dim3(192, 1,1), dim3(32*4,1,1), fused_kernel_args, 13056 * sizeof(half)));
+        // checkCuda(cudaLaunchCooperativeKernel((void*)bert_attn_kernel, dim3(192, 1,1), dim3(32*4,1,1), fused_kernel_args, 13056 * sizeof(half)));
+        // checkCuda(cudaLaunchCooperativeKernel((void*)bert_attn_kernel_v2, dim3(192, 1,1), dim3(32*4,1,1), fused_kernel_args, 26112 * sizeof(half))); 
+
+        // checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v3, dim3(192, 1, 1), dim3(128, 1, 1), fused_feed_forward_kernel_args, 13056 * sizeof(half)));
+        // checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v4, dim3(192, 1, 1), dim3(128, 1, 1), fused_feed_forward_kernel_args, 26112 * sizeof(half)));
+        // checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v5, dim3(192, 1, 1), dim3(128, 1, 1), fused_feed_forward_kernel_args, 26112 * sizeof(half)));
+        checkCuda(cudaLaunchCooperativeKernel((void*)fused_fc_fc_v6, dim3(192, 1, 1), dim3(128, 1, 1), fused_feed_forward_kernel_args,  (8704+8704+4352) * sizeof(half)));
       });
       checkCuda( cudaEventRecord(stopEvent,0) );
       checkCuda( cudaEventSynchronize(stopEvent) );
