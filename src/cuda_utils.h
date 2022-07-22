@@ -28,6 +28,14 @@ half warpReduceSum(half val) {
   return val;
 }
 
+__inline__ __device__
+half2 warpReduceSum(half2 val) {
+  for (int offset = warpSize/2; offset > 0; offset /= 2)
+    val = __hadd2(val, __shfl_down_sync(0xffffffff, val, offset));
+    // val += __shfl_down_sync(0xffffffff, val, offset);
+  return val;
+}
+
 #define CUBLAS_CHECK(func)                                                     \
     do {                                                                       \
         cublasStatus_t e = (func);                                             \
