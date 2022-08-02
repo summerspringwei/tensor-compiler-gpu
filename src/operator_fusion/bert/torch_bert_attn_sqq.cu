@@ -11,114 +11,72 @@
 
 #include "torch/all.h"
 
-#include "npy.hpp"
+#include "kernels/gemm.cu"
 
 #include "kernels/bert.h"
-// #include "kernels/gemm_add_qkv_bias.h"
-// #include "kernels/gemm_k2.h"
-// #include "kernels/gemm_reshape.h"
 // #include "kernels/gemm_three_stages.h"
 
-#include "kernels/fused_sqq_bert.h"
+#include "npy.hpp"
 
 #include "../../utils.h"
 #include "../../cuda_utils.h"
+#include "torch_utils.h"
 
 using namespace fuselage::experiments::networks::bert;
 /* This bert is based on the implementation of Qianqi Sun*/
 
-void print_tensor_shape(torch::Tensor tensor){
-  for(int i=0; i<tensor.sizes().size(); ++i){
-    printf("%ld ", tensor.size(i));
-  }printf("\n");
-}
+// __global__ void gemm_add_qkv_bias(const half *__restrict__ matrix_a,
+//                                   const half *__restrict__ matrix_b,
+//                                   const half *__restrict__ bias,
+//                                   half *__restrict__ matrix_c);
+// __global__ void gemm_k2(const half *__restrict__ matrix_a,
+//                         const half *__restrict__ matrix_b,
+//                         half *__restrict__ matrix_c);
+// __global__ void gemm_reshape(const half *__restrict__ matrix_a,
+//                              const half *__restrict__ matrix_b,
+//                              half *__restrict__ matrix_c);
+// __global__ void gemm_k6(const half *__restrict__ matrix_a,
+//                         const half *__restrict__ matrix_b,
+//                         half *__restrict__ matrix_c);
+// extern __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight, 
+//                                 half *__restrict__ src,
+//                                 const half *__restrict__ qkv_bias,
+//                                 half *__restrict__ qkv_output,
+//                                 half *__restrict__ query_key_output,
+//                                 half *__restrict__ query_key_mask,
+//                                 float * query_key_softmax_sum,
+//                                 half *__restrict__ attn_value_output,
+//                                 half* __restrict__ attn_fc_weight,
+//                                 half* __restrict__ attn_fc_output,
+//                                 float* layer_norm_variance,
+//                                 half eps, half h_gama, half h_beta,
+//                                 half* __restrict__ feed_forward_fc1_weight,
+//                                 half* __restrict__ feed_forward_fc1_output,
+//                                 half* __restrict__ feed_forward_fc2_weight,
+//                                 half* __restrict__ feed_forward_fc2_output,
+//                                 int64_t* profile_grid_clock,
+//                                 );
 
-std::string idx2cordinate(uint64_t idx, std::vector<uint64_t>& acc_mul){
-  std::vector<uint64_t> coordinate;
-  const int dim = acc_mul.size();
-  for(int i=0; i<dim-1; ++i){
-    coordinate.push_back(idx / acc_mul[i+1]);
-    idx = idx % acc_mul[i+1];
-  }
-  coordinate.push_back(idx);
-  std::stringstream ss;
-  // printf("(");
-  ss << "(";
-  for(int j=0; j<coordinate.size(); ++j){
-    // printf("%u ", coordinate[j]);
-    ss<<coordinate[j]<<" ";
-  }
-  ss <<")";
-  // printf(")");
-  return ss.str();
-}
+// extern __global__ void
+// gemm_three_stage<kGemmK4WarpRowTiles, kGemmK4WarpColTiles, kHiddenDim,
+//                  kSeqLength, kHiddenDim, 1>(const half *__restrict__ matrix_a,
+//                                             const half *__restrict__ matrix_b,
+//                                             half *__restrict__ matrix_c);
 
-
-void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, int print_detail=0){
-  auto shape = a.sizes();
-  const int dim = shape.size();
-  std::vector<uint64_t> acc_mul(dim);
-  acc_mul[dim-1] = shape[dim-1]; // acc_mul[2] = shape[2]
-  for(int i=0; i<dim-1; ++i){
-    acc_mul[dim-2-i] = acc_mul[dim-i-1] * shape[dim-2-i]; 
-  }
-  std::stringstream ss;
-  int error_cnt = 0;
-  auto num_elements = a.numel();
-  auto reshaped_a = torch::reshape(a, {num_elements, });
-  auto reshaped_b = torch::reshape(b, {num_elements, });
-  for(uint64_t i=0; i<num_elements; ++i){
-    auto x = reshaped_a[i].item().toHalf();
-    auto y = reshaped_b[i].item().toHalf();
-    if(std::abs(x - y) > rotl * std::abs(x) + aotl){
-      error_cnt ++;
-      if(print_detail>=1){
-        ss << "diff " << idx2cordinate(i, acc_mul);
-        ss << __half2float(x) << " " << __half2float(y) << "\n";
-        // printf("diff ");
-        // printf(" %f %f\n", __half2float(x), __half2float(y));
-      }
-    }else{
-      if(print_detail>=2){
-        ss << "same " << idx2cordinate(i, acc_mul);
-        ss << __half2float(x) << " " << __half2float(y) << "\n";
-        // printf("same ");
-        // idx2cordinate(i, acc_mul);
-        // printf(" %f %f\n", __half2float(x), __half2float(y));
-      }
-    }
-  }
-  printf("%s\n", ss.str().c_str());
-  printf("my_compare error_cnt %d, total %d, error ratio %.3f\n", error_cnt, num_elements, ((float)error_cnt) / ((float)num_elements));
-}
-
+// extern __global__ void
+// gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
+//                  kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>(
+//     const half *__restrict__ matrix_a, const half *__restrict__ matrix_b,
+//     half *__restrict__ matrix_c);
 
 template<int64_t batch_size, int64_t num_heads, int64_t max_seq_length, int64_t hidden_size, int64_t d_intermedia>
-float test_bert_attn(int round_cout=1, int loop=1){
-  auto options_fp16 = torch::TensorOptions()
-    .dtype(torch::kFloat16)
-    .layout(torch::kStrided)
-    .device(torch::kCUDA, 0)
-    .requires_grad(false);
-  auto options_fp16_cpu = torch::TensorOptions()
-    .dtype(torch::kFloat16)
-    .layout(torch::kStrided)
-    .device(torch::kCPU, 0)
-    .requires_grad(false);
-  auto options_fp32 = torch::TensorOptions()
-    .dtype(torch::kFloat32)
-    .layout(torch::kStrided)
-    .device(torch::kCUDA, 0)
-    .requires_grad(false);
-  auto options_fp32_cpu = torch::TensorOptions()
-    .dtype(torch::kFloat32)
-    .layout(torch::kStrided)
-    .device(torch::kCPU, 0)
-    .requires_grad(false);
+float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
+  // CUfunction cu_fused_sqq_bert;
+  // checkCuda(cudaGetFuncBySymbol(&cu_fused_sqq_bert,
+  //                                  (const void *)fused_sqq_bert));
+  int compare_level = 2;
   const int d_model = num_heads * hidden_size;
-  
   // Load weight from model file
-  
   auto load_file_query = std::vector<float>(d_model*d_model);
   std::vector<unsigned long> shape = {d_model, d_model};
   bool fortran_order;
@@ -144,7 +102,6 @@ float test_bert_attn(int round_cout=1, int loop=1){
     shape, fortran_order,  load_file_feed_forward);
   auto feed_forward_fc2_weight = torch::from_blob(load_file_feed_forward.data(), {d_intermedia, d_model}).clone().toType(torch::kHalf).to(torch::kCUDA);
 
-
   // Create dummy data
   // auto src = torch::div(
   //   torch::ones({batch_size*max_seq_length, d_model}, options_fp16), 
@@ -161,8 +118,7 @@ float test_bert_attn(int round_cout=1, int loop=1){
   auto bias_qkv = torch::zeros({3, d_model}, options_fp16);
   float scale = 16;
   auto src = torch::nn::init::uniform_(
-    torch::randn({batch_size*max_seq_length, d_model}, options_fp16),
-    0, 1);
+    torch::randn({batch_size*max_seq_length, d_model}, options_fp16), 0, 1);
 
 
   // Torch implementation
@@ -222,6 +178,8 @@ float test_bert_attn(int round_cout=1, int loop=1){
   auto feed_forward_fc1_output = torch::zeros({batch_size*max_seq_length, d_intermedia}, options_fp16);
   auto feed_forward_fc2_output = torch::zeros({batch_size*max_seq_length, d_model}, options_fp16);
   auto layer_norm_variance = torch::zeros({batch_size*max_seq_length, }, options_fp32);
+  const int kProfileStages = 10, max_blocks=108, max_num_warp=4;
+  auto profile_clock = torch::zeros({kProfileStages, max_blocks, max_num_warp}, options_int64);
   
 
   at::Half* ptr_src = src.data<at::Half>();
@@ -243,8 +201,13 @@ float test_bert_attn(int round_cout=1, int loop=1){
   float* ptr_layer_norm_variance = layer_norm_variance.data<float>();
   at::Half* ptr_t_attn_fc_layer_norm_output = t_attn_fc_layer_norm_output.data<at::Half>();
   at::Half* ptr_t_feed_forward_fc2_output = t_feed_forward_fc2_output.data<at::Half>();
+  int64_t* ptr_profile_clock = profile_clock.data<int64_t>();
+  // Pointers from torch
+  at::Half* ptr_t_attn_fc_output = t_attn_fc_output.data<at::Half>();
+  at::Half* ptr_t_attn_fc_short_cut_add = t_attn_fc_short_cut_add.data<at::Half>();
+
   half eps = 0.00001, gama=1, beta = 0;
-  // My Fused bert
+  // 0. My Fused bert
   void * fused_bert_kernel_args[] = {
     (void *)&(ptr_weight_qkv), 
     (void *)&(ptr_src), 
@@ -262,142 +225,104 @@ float test_bert_attn(int round_cout=1, int loop=1){
     (void *)&(ptr_feed_forward_fc1_output),
     (void *)&(ptr_feed_forward_fc2_weight),
     (void *)&(ptr_feed_forward_fc2_output),
+    (void *)&(ptr_profile_clock),
+    (void *)&(ptr_t_attn_fc_output),
+    (void *)&(ptr_t_attn_fc_short_cut_add),
   };
   const size_t fused_bert_shared_mem = 128*1024;
+  printf("cudaFuncSetAttribute\n");
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_bert", [&]{
-    checkCuda(cudaLaunchCooperativeKernel((void*)fused_sqq_bert, dim3(108, 1, 1), dim3(128, 1, 1), fused_bert_kernel_args, fused_bert_shared_mem));
-  });
-  checkCuda(cudaDeviceSynchronize());
-  printf("Ours finshed\n");
-  // Check result
-  auto value = torch::reshape(torch::split(output_qkv, 1, 0)[2], {num_heads, max_seq_length, hidden_size});
-  // my_compare(t_value, value, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_attn_fc_short_cut_add, attn_fc_output, 1.0/16, 1.0/1024, 2);
-  auto attn_fc_layer_norm_x_2 = torch::slice(query_key_softmax_sum, 0, 0, 1);
-  // my_compare(t_attn_fc_layer_norm_x_2, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_attn_fc_layer_norm_x, layer_norm_variance, 1.0/16, 1.0/1024, 2);
-  my_compare(t_attn_fc_layer_norm_output, attn_fc_output, 1.0/16, 1.0/1024, 2);
-  my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_feed_forward_fc2_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_feed_forward_fc2_short_cut_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
-  my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
-  my_compare(t_feed_forward_fc2_layer_norm_sum_x, layer_norm_variance, 1.0/16, 1.0/1024, 2);
-  my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
-  printf("Comparing results finshed\n");
-  // // 1. fused qkv matmul
-  // void* fused_attn_kernel_args[] = {(void *)&(ptr_weight_qkv), (void *)&(ptr_src), 
-  //   (void *)&(ptr_bias_qkv), (void *)&(ptr_output_qkv)
-  // };
-  // const size_t gemm_k1_shared_mem =
-  //   (kStage * /* 3x (3x 4x16 x (2x1x16+8) +  2x3x16 x (4x16+8))*/
-  //     (3 * kChunkK * kWmmaK *
-  //         (kBlockRowWarps * kGemmK1WarpRowTiles * kWmmaM + kInputSkew) +
-  //     kBlockColWarps * kGemmK1WarpColTiles * kWmmaN *
-  //         (kChunkK * kWmmaK + kInputSkew))) *
-  //   sizeof(half);
-  // check_compatability(128, gemm_k1_shared_mem, (void*)gemm_add_qkv_bias);
-  // printf("qkv matmul shared memory: %ld, blocks %d\n", gemm_k1_shared_mem, 24*4);
-  // checkCuda(cudaFuncSetAttribute((void*)gemm_add_qkv_bias, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k1_shared_mem));
-  // AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_qkv", [&]{
-  //   checkCuda(cudaLaunchCooperativeKernel((void*)gemm_add_qkv_bias, dim3(24*4, 1, 1), dim3(128, 1, 1), fused_attn_kernel_args, gemm_k1_shared_mem));
-  // });
-  // checkCuda(cudaDeviceSynchronize());
+  printf("cudaFuncSetAttribute\n");
+  // 1. fused qkv matmul
+  void* fused_attn_kernel_args[] = {(void *)&(ptr_weight_qkv), (void *)&(ptr_src), 
+    (void *)&(ptr_bias_qkv), (void *)&(ptr_output_qkv)
+  };
+  const size_t gemm_k1_shared_mem =
+    (kStage * /* 3x (3x 4x16 x (2x1x16+8) +  2x3x16 x (4x16+8))*/
+      (3 * kChunkK * kWmmaK *
+          (kBlockRowWarps * kGemmK1WarpRowTiles * kWmmaM + kInputSkew) +
+      kBlockColWarps * kGemmK1WarpColTiles * kWmmaN *
+          (kChunkK * kWmmaK + kInputSkew))) *
+    sizeof(half);
+  check_compatability(128, gemm_k1_shared_mem, (void*)gemm_add_qkv_bias);
+  printf("qkv matmul shared memory: %ld, blocks %d\n", gemm_k1_shared_mem, 24*4);
+  checkCuda(cudaFuncSetAttribute((void*)gemm_add_qkv_bias, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k1_shared_mem));
 
-  // // 2. query key matmul
-  // auto t_ptr_key = cloned_key.data<at::Half>();
-  // auto t_ptr_query = cloned_query.data<at::Half>();
-  // void* fused_attn_query_key_kernel_args[] = {
-  //   (void*)&(t_ptr_key), (void*)&(t_ptr_query),
-  //   (void *)&(ptr_query_key_output)
-  // };
-  // const int gemm_k2_blocks =
-  //       (max_seq_length / (kBlockRowWarps * kGemmK2WarpRowTiles * kWmmaM)) * /*3*/
-  //       (max_seq_length / (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN)) * /*3*/
-  //       kGemmK2BatchedNum; /*12*/
+  // 2. query key matmul
+  auto t_ptr_key = cloned_key.data<at::Half>();
+  auto t_ptr_query = cloned_query.data<at::Half>();
+  void* fused_attn_query_key_kernel_args[] = {
+    (void*)&(t_ptr_key), (void*)&(t_ptr_query),
+    (void *)&(ptr_query_key_output)
+  };
+  const int gemm_k2_blocks =
+        (max_seq_length / (kBlockRowWarps * kGemmK2WarpRowTiles * kWmmaM)) * /*3*/
+        (max_seq_length / (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN)) * /*3*/
+        kGemmK2BatchedNum; /*12*/
   const int gemm_k2_shared_mem = ((kBlockRowWarps * kGemmK2WarpRowTiles * kWmmaM) * (kChunkK * kWmmaK + kInputSkew) +
     (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN) * (kChunkK * kWmmaK * kInputSkew)) * sizeof(half);
-  // checkCuda(cudaFuncSetAttribute((void*)gemm_k2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k2_shared_mem));
-  // printf("gemm_k2 matmul shared memory: %ld, blocks %d\n", gemm_k2_shared_mem, 3*3*12);
-  // AT_DISPATCH_FLOATING_TYPES_AND_HALF(query_key_output.type(), "bert_attn_query_key", [&]{
-  //   checkCuda(cudaLaunchCooperativeKernel((void*)gemm_k2, dim3(3*3*12, 1, 1), dim3(128, 1, 1), fused_attn_query_key_kernel_args, gemm_k2_shared_mem));
-  // });
-  // checkCuda(cudaDeviceSynchronize());
+  checkCuda(cudaFuncSetAttribute((void*)gemm_k2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k2_shared_mem));
+  printf("gemm_k2 matmul shared memory: %ld, blocks %d\n", gemm_k2_shared_mem, 3*3*12);
 
   // tvm_query_key_matmul_cuda<<<dim3(768, 1, 1), dim3(192, 1, 1)>>>((half*)t_ptr_query, (half*)t_ptr_key, (half*)ptr_tvm_query_key_output);
   // checkCuda(cudaDeviceSynchronize());
 
-  // // 3. inputA:(12,384,64) [value], inputB:(12,384,384) [softmax_qk], output:(384,768)
-  // // (12, 384, 384) x (12, 384, 64) -> (12, 384, 64) ->reshape-> (384, 768)
-  // auto ptr_value = t_value.data<at::Half>();
-  // auto ptr_qk = t_query_key_output.data<at::Half>();
-  // // (64/(2*2*16)) * (384/(2*2*16)) * 12 = 6*12 = 72
-  // const int gemm_k3_blocks =
-  //       (kHeadSize / (kBlockRowWarps * kGemmK3WarpRowTiles * kWmmaM)) *
-  //       (batch_size*max_seq_length / (kBlockColWarps * kGemmK3WarpColTiles * kWmmaN)) *
-  //       kGemmK3BatchedNum;
-  // const int gemm_k3_shared_mem =
-  //       (kStage *
-  //        (kChunkK * kWmmaK *
-  //             (kBlockRowWarps * kGemmK3WarpRowTiles * kWmmaM + kInputSkew) +
-  //         kBlockColWarps * kGemmK3WarpColTiles * kWmmaN *
-  //             (kChunkK * kWmmaK + kInputSkew))) *
-  //       sizeof(half);
+  // 3. inputA:(12,384,64) [value], inputB:(12,384,384) [softmax_qk], output:(384,768)
+  // (12, 384, 384) x (12, 384, 64) -> (12, 384, 64) ->reshape-> (384, 768)
+  auto ptr_value = t_value.data<at::Half>();
+  auto ptr_qk = t_query_key_output.data<at::Half>();
+  // (64/(2*2*16)) * (384/(2*2*16)) * 12 = 6*12 = 72
+  const int gemm_k3_blocks =
+        (kHeadSize / (kBlockRowWarps * kGemmK3WarpRowTiles * kWmmaM)) *
+        (batch_size*max_seq_length / (kBlockColWarps * kGemmK3WarpColTiles * kWmmaN)) *
+        kGemmK3BatchedNum;
+  const int gemm_k3_shared_mem =
+        (kStage *
+         (kChunkK * kWmmaK *
+              (kBlockRowWarps * kGemmK3WarpRowTiles * kWmmaM + kInputSkew) +
+          kBlockColWarps * kGemmK3WarpColTiles * kWmmaN *
+              (kChunkK * kWmmaK + kInputSkew))) *
+        sizeof(half);
   
-  // printf("gemm_k3 shared memory %d, blocks %d\n", gemm_k3_shared_mem, gemm_k3_blocks);
-  // void* fused_attn_value_kernel_args[] = {
-  //   (void*)&(ptr_value), (void*)&(ptr_qk), (void*)&(ptr_attn_value_output)
-  // };
-  // checkCuda(cudaFuncSetAttribute((void*)gemm_reshape, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k3_shared_mem));
-  // AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_value", [&]{
-  //   checkCuda(cudaLaunchCooperativeKernel((void*)gemm_reshape, dim3(72, 1, 1), dim3(128, 1, 1), fused_attn_value_kernel_args, gemm_k3_shared_mem));
-  // });
-  // checkCuda(cudaDeviceSynchronize());
+  printf("gemm_k3 shared memory %d, blocks %d\n", gemm_k3_shared_mem, gemm_k3_blocks);
+  void* fused_attn_value_kernel_args[] = {
+    (void*)&(ptr_value), (void*)&(ptr_qk), (void*)&(ptr_attn_value_output)
+  };
 
-  // // 4. inputA: (768, 768), inputB: (384, 768), C(384, 768)
-  // auto ptr_attn_fc_weight = attn_fc_weight.data<at::Half>();
-  // auto ptr_attn_fc_output = attn_fc_output.data<at::Half>();
-  // const int gemm_k4_blocks =
-  //           (d_model / (kBlockRowWarps * kGemmK4WarpRowTiles * kWmmaM)) *
-  //           (batch_size*max_seq_length / (kBlockColWarps * kGemmK4WarpColTiles * kWmmaN));
-  // const int gemm_k4_shared_mem =
-  //     (kStage *
-  //       (kChunkK * kWmmaK *
-  //           (kBlockRowWarps * kGemmK4WarpRowTiles * kWmmaM + kInputSkew) +
-  //       kBlockColWarps * kGemmK4WarpColTiles * kWmmaN *
-  //           (kChunkK * kWmmaK + kInputSkew))) *
-  //     sizeof(half);
-  // printf("gemm_k4 shared memory %d, blocks %d\n", gemm_k4_shared_mem, gemm_k4_blocks);
-  // void* fused_attn_fc_kernel_args[] = {
-  //   (void*)&(ptr_attn_fc_weight), (void*)&(ptr_attn_value_output), (void*)&(ptr_attn_fc_output)
-  // };
+  // 4. inputA: (768, 768), inputB: (384, 768), C(384, 768)
+  const int gemm_k4_blocks =
+            (d_model / (kBlockRowWarps * kGemmK4WarpRowTiles * kWmmaM)) *
+            (batch_size*max_seq_length / (kBlockColWarps * kGemmK4WarpColTiles * kWmmaN));
+  const int gemm_k4_shared_mem =
+      (kStage *
+        (kChunkK * kWmmaK *
+            (kBlockRowWarps * kGemmK4WarpRowTiles * kWmmaM + kInputSkew) +
+        kBlockColWarps * kGemmK4WarpColTiles * kWmmaN *
+            (kChunkK * kWmmaK + kInputSkew))) *
+      sizeof(half);
+  printf("gemm_k4 shared memory %d, blocks %d\n", gemm_k4_shared_mem, gemm_k4_blocks);
+  void* fused_attn_fc_kernel_args[] = {
+    (void*)&(ptr_attn_fc_weight), (void*)&(ptr_attn_value_output), (void*)&(ptr_attn_fc_output)
+  };
   // checkCuda(cudaFuncSetAttribute((const void *)gemm_three_stage<kGemmK4WarpRowTiles, kGemmK4WarpColTiles,
   //                       d_model, max_seq_length, d_model, 1>, 
   //                       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k4_shared_mem));
-  // AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_fc", [&]{
-  //   checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_three_stage<kGemmK4WarpRowTiles, kGemmK4WarpColTiles,
-  //                       d_model, max_seq_length, d_model, 1>, 
-  //                       dim3(gemm_k4_blocks, 1, 1), dim3(128, 1, 1), fused_attn_fc_kernel_args, gemm_k4_shared_mem));
-  // });
-  // checkCuda(cudaDeviceSynchronize());
 
-  // // 5. inputA:(768,3072), inputB: (384,768), output:(384,3072)
-  // void* fused_feed_forward_fc1_kernel_args[] = {
-  //   (void*)&(ptr_feed_forward_fc1_weight), (void*)&(ptr_attn_fc_output), (void*)&(ptr_feed_forward_fc1_output)
-  // };
-  // const int gemm_k5_blocks =
-  //           (d_intermedia / (kBlockRowWarps * kGemmK5WarpRowTiles * kWmmaM)) *
-  //           (batch_size*max_seq_length / (kBlockColWarps * kGemmK5WarpColTiles * kWmmaN));
-  // const int gemm_k5_shared_mem =
-  //     (kStage *
-  //       (kChunkK * kWmmaK *
-  //           (kBlockRowWarps * kGemmK5WarpRowTiles * kWmmaM + kInputSkew) +
-  //       kBlockColWarps * kGemmK5WarpColTiles * kWmmaN *
-  //           (kChunkK * kWmmaK + kInputSkew))) *
-  //     sizeof(half);
-  // printf("gemm_k5 shared memory %d, blocks %d\n", gemm_k5_shared_mem, gemm_k5_blocks);
+  // 5. inputA:(768,3072), inputB: (384,768), output:(384,3072)
+  void* fused_feed_forward_fc1_kernel_args[] = {
+    (void*)&(ptr_feed_forward_fc1_weight), (void*)&(ptr_attn_fc_output), (void*)&(ptr_feed_forward_fc1_output)
+  };
+  const int gemm_k5_blocks =
+            (d_intermedia / (kBlockRowWarps * kGemmK5WarpRowTiles * kWmmaM)) *
+            (batch_size*max_seq_length / (kBlockColWarps * kGemmK5WarpColTiles * kWmmaN));
+  const int gemm_k5_shared_mem =
+      (kStage *
+        (kChunkK * kWmmaK *
+            (kBlockRowWarps * kGemmK5WarpRowTiles * kWmmaM + kInputSkew) +
+        kBlockColWarps * kGemmK5WarpColTiles * kWmmaN *
+            (kChunkK * kWmmaK + kInputSkew))) *
+      sizeof(half);
+  printf("gemm_k5 shared memory %d, blocks %d\n", gemm_k5_shared_mem, gemm_k5_blocks);
   // checkCuda(cudaFuncSetAttribute((const void *)gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
   //                                 kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>, 
   //                                 cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k5_shared_mem));
@@ -406,101 +331,107 @@ float test_bert_attn(int round_cout=1, int loop=1){
   //                                 kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>, 
   //                                 dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feed_forward_fc1_kernel_args, gemm_k5_shared_mem));
   // });
-  // checkCuda(cudaDeviceSynchronize());
 
-  // void* fused_feed_forward_fc2_kernel_args[] = {
-  //   (void*)&(ptr_feed_forward_fc2_weight), (void*)&(ptr_feed_forward_fc1_output), (void*)&(ptr_feed_forward_fc2_output)
-  // };
-  // const int gemm_k6_blocks = (d_model / (kGemmK6BlockRowTiles * kWmmaM)) *
-  //                                  (batch_size*max_seq_length / (kGemmK6BlockColTiles * kWmmaN));
-  // const int gemm_k6_shared_mem =
-  //           (kStage * (kGemmK6BlockSliceKTiles * kWmmaK *
-  //                          (kGemmK6BlockRowTiles * kWmmaM + kInputSkew) +
-  //                      kGemmK6BlockColTiles * kWmmaN *
-  //                          (kGemmK6BlockSliceKTiles * kWmmaK + kInputSkew))) *
-  //           sizeof(half);
-  // printf("gemm_k6 shared memory %d, blocks %d\n", gemm_k6_shared_mem, gemm_k6_blocks);
-  // checkCuda(cudaFuncSetAttribute((const void *)gemm_k6, 
-  //                                 cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k6_shared_mem));
-  // AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_feed_forward_fc2", [&]{
-  //   checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_k6, 
-  //                                 dim3(gemm_k6_blocks,1,1), dim3(128, 1,1), fused_feed_forward_fc2_kernel_args, gemm_k6_shared_mem));
-  // });
-  // checkCuda(cudaDeviceSynchronize());
+  void* fused_feed_forward_fc2_kernel_args[] = {
+    (void*)&(ptr_feed_forward_fc2_weight), (void*)&(ptr_feed_forward_fc1_output), (void*)&(ptr_feed_forward_fc2_output)
+  };
+  const int gemm_k6_blocks = (d_model / (kGemmK6BlockRowTiles * kWmmaM)) *
+                                   (batch_size*max_seq_length / (kGemmK6BlockColTiles * kWmmaN));
+  const int gemm_k6_shared_mem =
+            (kStage * (kGemmK6BlockSliceKTiles * kWmmaK *
+                           (kGemmK6BlockRowTiles * kWmmaM + kInputSkew) +
+                       kGemmK6BlockColTiles * kWmmaN *
+                           (kGemmK6BlockSliceKTiles * kWmmaK + kInputSkew))) *
+            sizeof(half);
+  printf("gemm_k6 shared memory %d, blocks %d\n", gemm_k6_shared_mem, gemm_k6_blocks);
+  checkCuda(cudaFuncSetAttribute((const void *)gemm_k6, 
+                                  cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k6_shared_mem));
 
-  // std::vector<int64_t> shape_output_qkv = {batch_size*max_seq_length, 3*d_model,};
-  // std::vector<int64_t> shape_output_qkv = {3, d_model, max_seq_length};
-  // printf("\noutput_qkv\n");
-  // torch::print(torch::reshape(output_qkv, shape_output_qkv), 768*100);
-  // printf("\nt_output_qkv\n");
-  // torch::print(torch::reshape(t_output_qkv, shape_output_qkv), 768*100);
-  // printf("\nquery_key_output\n");
-  // torch::print(query_key_output, 768*100);
-  // printf("\nt_query_key_output\n");
-  // torch::print(t_query_key_output, 768*100);
-  // printf("\nquery_key_output\n");
-  // torch::print(query_key_output, 768*100);
-  // printf("\nt_query_key_softmax\n");
-  // torch::print(t_query_key_softmax, 768*100);
-  // printf("\nquery_key_softmax_sum\n");
-  // torch::print(query_key_softmax_sum, 768*100);
-  // printf("\nt_query_key_output_sum\n");
-  // torch::print(t_query_key_output_sum, 768*100);
+  void* fused_feedforward_kernel_args[] = {
+    (void*)&(ptr_feed_forward_fc1_weight), (void*)&(ptr_attn_fc_output), (void*)&(ptr_feed_forward_fc1_output)
+  };
+  // __global__ void fused_sqq_feedforward(half* __restrict__ attn_fc_output,
+  //                               half* __restrict__ feed_forward_fc1_weight,
+  //                               half* __restrict__ feed_forward_fc1_output,
+  //                               half* __restrict__ feed_forward_fc2_weight,
+  //                               half* __restrict__ feed_forward_fc2_output,
+  //                               half eps, half h_gama, half h_beta,
+  //                               float * query_key_softmax_sum,
+  //                               float* layer_norm_variance,
+  //                               int64_t* profile_grid_clock)
   
-  
-  // printf("attn_fc_output\n");
-  // torch::print(attn_fc_output, 768*100);
-  // printf("t_attn_fc_output\n");
-  // torch::print(t_attn_fc_output, 768*100);
-  // printf("t_attn_layer_norm_output\n");
-  // torch::print(t_attn_layer_norm_output, 768*100);
-  // printf("t_attn_fc_output_tmp\n");
-  // torch::print(t_attn_fc_output_tmp, 768*100);
-  // printf("attn_fc_weight\n");
-  // torch::print(attn_fc_weight, 768*100);
-  // printf("single_attn_fc_output\n");
-  // torch::print(single_attn_fc_output, 768*100);
-  // printf("inter_attn_fc_output\n");
-  // torch::print(inter_attn_fc_output, 768*100);
-  
-  
-  
-  // assert(torch::allclose(
-  //   torch::reshape(output_qkv, {3, max_seq_length, d_model}), 
-  //   torch::reshape(t_output_qkv, {3, max_seq_length, d_model}), 1.0/16, 1.0/1024));
-  // assert(torch::allclose(query, t_query, 1.0/16, 1.0/1024));
-  // assert(torch::allclose(key, t_key, 1.0/16, 1.0/1024));
-  // assert(torch::allclose(value, t_value, 1.0/16, 1.0/1024));
-  // assert(torch::allclose(
-  //   torch::reshape(t_query_key_output, {num_heads, max_seq_length, max_seq_length}),
-  //   torch::reshape(query_key_output, {num_heads, max_seq_length, max_seq_length}), 1.0/16, 1.0/1024, true));
-  // assert(torch::allclose(
-  //   torch::reshape(attn_value_output, {max_seq_length, d_model}), 
-  //   t_attn_value_output_permuted, 1.0/16, 1.0/1024));
-  // assert(torch::allclose(attn_fc_weight, t_attn_fc_weight, 1.0/16, 1.0/1024));
-  // // assert(torch::allclose(t_attn_fc_output_tmp, single_attn_fc_output, 1.0/16, 1.0/1024));
-  // printf("max sub:\n");
-  // torch::print(torch::max(torch::abs(torch::sub(attn_fc_output, t_attn_fc_output))));
-  // auto cmp_attn_fc_output = attn_fc_output.to(torch::kCPU);
-  // auto cmp_t_attn_fc_output = t_attn_fc_output.to(torch::kCPU);
-  // my_compare(cmp_attn_fc_output, cmp_t_attn_fc_output, 1.0/16, 1.0/128);
-  // my_compare(attn_fc_output, t_attn_fc_output, 1.0/16, 1.0/128);
-  // my_compare(t_feed_forward_fc1_output, feed_forward_fc1_output, 1.0/16, 1.0/128);
-  // my_compare(t_feed_forward_fc2_output, feed_forward_fc2_output, 1.0/16, 1.0/128);
-  // assert(torch::allclose(attn_fc_output, t_attn_fc_output, 1.0/16, 1.0/128));
+  auto device_func = [&](int func_id){
+    switch (func_id)
+    {
+    case 0:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_bert", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((void*)fused_sqq_bert, dim3(108, 1, 1), dim3(128, 1, 1), fused_bert_kernel_args, fused_bert_shared_mem));
+      });
+      break;
+    case 1:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_qkv", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_add_qkv_bias, dim3(24*4, 1, 1), dim3(128, 1, 1), fused_attn_kernel_args, gemm_k1_shared_mem));
+      });
+      break;
+    case 2:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(query_key_output.type(), "bert_attn_query_key", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_k2, dim3(3*3*12, 1, 1), dim3(128, 1, 1), fused_attn_query_key_kernel_args, gemm_k2_shared_mem));
+      });
+      break;
+    case 3:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_value", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_reshape, dim3(72, 1, 1), dim3(128, 1, 1), fused_attn_value_kernel_args, gemm_k3_shared_mem));
+      });
+      break;
+    case 4:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_fc", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_three_stage<kGemmK4WarpRowTiles, kGemmK4WarpColTiles,
+                        d_model, max_seq_length, d_model, 1>, 
+                        dim3(gemm_k4_blocks, 1, 1), dim3(128, 1, 1), fused_attn_fc_kernel_args, gemm_k4_shared_mem));
+      });
+      break;
+    case 5:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_feed_forward_fc2", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_k6, 
+                                      dim3(gemm_k6_blocks,1,1), dim3(128, 1,1), fused_feed_forward_fc2_kernel_args, gemm_k6_shared_mem));
+      });
+      break;
+    default:
+      break;
+    }
+  };
 
-  // assert(torch::allclose(attn_fc_output, t_attn_layer_norm_output, 1.0/16, 1.0/1024));
-
+  // Run device function
+  device_func(func_id);
+  cudaDeviceSynchronize();
+  
+  // Check result
+  auto value = torch::reshape(torch::split(output_qkv, 1, 0)[2], {num_heads, max_seq_length, hidden_size});
+  my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_query_key_output_sum, query_key_softmax_sum, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_attn_fc_short_cut_add, attn_fc_output, 1.0/16, 1.0/1024, 2);
+  auto attn_fc_layer_norm_x_2 = torch::slice(query_key_softmax_sum, 0, 0, 1);
+  my_compare(t_attn_fc_layer_norm_x, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
+  my_compare(t_attn_fc_layer_norm_x_2, layer_norm_variance, 1.0/16, 1.0/1024, 2);
+  my_compare(t_attn_fc_layer_norm_output, attn_fc_output, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_feed_forward_fc2_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_feed_forward_fc2_short_cut_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_feed_forward_fc2_layer_norm_sum_x, layer_norm_variance, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
+  printf("Comparing results finshed\n");
 
   // Benchmark
   cudaEvent_t startEvent, stopEvent;
   checkCuda(cudaEventCreate(&startEvent));
   checkCuda(cudaEventCreate(&stopEvent));
+
   // Warm up
   for(int i=0; i<100; ++i){
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_bert", [&]{
-    checkCuda(cudaLaunchCooperativeKernel((void*)fused_sqq_bert, dim3(108, 1, 1), dim3(128, 1, 1), fused_bert_kernel_args, fused_bert_shared_mem));
-  });
+    device_func(func_id);
   }
   
   // 1. For original pointwise conv
@@ -509,9 +440,7 @@ float test_bert_attn(int round_cout=1, int loop=1){
     float ms = 0, latency_sum = 0;
     for(int i=0; i<loop; ++i){
       checkCuda( cudaEventRecord(startEvent,0) );
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_bert", [&]{
-    checkCuda(cudaLaunchCooperativeKernel((void*)fused_sqq_bert, dim3(108, 1, 1), dim3(128, 1, 1), fused_bert_kernel_args, fused_bert_shared_mem));
-  });
+      device_func(func_id);
       checkCuda( cudaEventRecord(stopEvent,0) );
       checkCuda( cudaEventSynchronize(stopEvent) );
       checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
@@ -523,12 +452,32 @@ float test_bert_attn(int round_cout=1, int loop=1){
     }
     printf("Run iter %d loops %d finished, avg %f us\n", round, loop, min_avg);
   }
+
+  // Dump the clock profile in fused_bert
+  for(int i=0; i<kProfileStages; ++i){
+    for(int j=0; j<108; ++j){
+      for(int k=0; k<4; ++k){
+        if(i>0){
+          printf("stage: %d, block: %d, warp: %d, latency: %ld\n", 
+            i-1, j, k, profile_clock[i][j][k].item().toLong() - profile_clock[i-1][j][k].item().toLong());
+        }
+      }
+    }
+  }
+
   checkCuda(cudaEventDestroy(startEvent));
   checkCuda(cudaEventDestroy(stopEvent));
   return min_avg;
 }
 
-int main(){
-  test_bert_attn<1, 12, 384, 64, 3072>(3, 10000);
+int main(int argc, char** argv){
+  int round = 1, loop = 1, type=0;
+  if(argc>2){
+    round = atoi(argv[1]);
+    loop = atoi(argv[2]);
+  }if(argc>3){
+    type = atoi(argv[3]);
+  }
+  test_bert_attn<1, 12, 384, 64, 3072>(round, loop);
   return 0;
 }

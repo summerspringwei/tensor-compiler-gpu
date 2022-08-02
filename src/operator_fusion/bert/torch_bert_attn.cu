@@ -141,7 +141,7 @@ float test_bert_attn(int round_cout=1, int loop=1){
   at::Half* t_ptr_fc_output_tmp = t_attn_fc_output_tmp.data<at::Half>();
   at::Half* t_ptr_attn_fc_output = t_attn_fc_output.data<at::Half>();
 
-  void *fused_kernel_args[] = { (void *)&(ptr_src), (void *)&(ptr_weight_qkv), 
+  void *fused_kernel_args[] = {(void *)&(ptr_src), (void *)&(ptr_weight_qkv), 
     (void *)&(ptr_output_qkv), (void *)&(ptr_query), (void *)&(ptr_key), 
     (void *)&(ptr_value), (void*)&(ptr_query_key_output), (void*)&(ptr_sum),
     (void*)&(ptr_attn_value_output), (void*)&(ptr_attn_fc_weight), (void*)&(ptr_attn_fc_output),

@@ -1,7 +1,9 @@
 #include "bert.h"
-#include <cooperative_groups.h>
 #include <cuda/pipeline>
+#include <cooperative_groups.h>
 #include <mma.h>
+
+using namespace fuselage::experiments::networks::bert;
 
 __global__ void gemm_k2(const half *__restrict__ matrix_a,
                         const half *__restrict__ matrix_b,
