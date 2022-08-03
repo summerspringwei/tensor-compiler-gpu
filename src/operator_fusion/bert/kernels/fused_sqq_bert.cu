@@ -24,7 +24,6 @@ half2 warpReduceSumHalf2(half2 val) {
 // gemm_k4 shared memory 55296, blocks 72
 // gemm_k5 shared memory 93696, blocks 96
 // gemm_k6 shared memory 55296, blocks 72
-
 using namespace fuselage::experiments::networks::bert;
 
 __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight, 
@@ -37,12 +36,15 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
                                 half *__restrict__ attn_value_output,
                                 half* __restrict__ attn_fc_weight,
                                 half* __restrict__ attn_fc_output,
-                                float* layer_norm_variance,
+                                float* attn_layer_norm_sum,
+                                float* attn_layer_norm_variance,
                                 half eps, half h_gama, half h_beta,
                                 half* __restrict__ feed_forward_fc1_weight,
                                 half* __restrict__ feed_forward_fc1_output,
                                 half* __restrict__ feed_forward_fc2_weight,
                                 half* __restrict__ feed_forward_fc2_output,
+                                float* feed_forward_layernorm_sum,
+                                float* feed_forward_layernorm_variance,
                                 int64_t* profile_grid_clock,
                                 // Pointers from pytorch
                                 half* ptr_t_attn_fc_output,
@@ -1379,75 +1381,25 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     
     
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
-    uint64_t global_col_offset = batched_id * N + col_block_id * kBlockColTiles * kWmmaN;
-    float* arr_init[] = {query_key_softmax_sum, layer_norm_variance};
-    arr_init[(threadIdx.x >> 6)][global_col_offset + (threadIdx.x & 63)] = 0;
-    // Init reduce sum global memory
-    // if(threadIdx.x < 64){
-    //     query_key_softmax_sum[global_col_offset + (threadIdx.x & 63)] = 0;
-    // }else{
-    //     layer_norm_variance[global_col_offset + (threadIdx.x & 63)] =0;
-    // }
-    __syncthreads();
-    // const int kComputeRowsPerIter = 128 * sizeof(half2) / sizeof(half) / (kBlockRowTiles * kWmmaM);
-    // for(int i=0; i<(kBlockColTiles * kWmmaN / kComputeRowsPerIter); ++i){
-    //     int row = i * kComputeRowsPerIter + (threadIdx.x >> 5);
-    //     int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
-    //     int idx = row * (kBlockRowTiles * kWmmaM + kAccSkew) + col;
-    //     half2 value = ((half2*)(acc_shared + idx))[0] + ((half2*)(short_cut_add_shared + idx))[0];
-    //     atomicAdd(layer_norm_variance + global_col_offset + row, (__half2float(value.x) + __half2float(value.y)));
-    //     ((half2*)(acc_shared + idx))[0] = value;
-    //     half2 value_x_2 = value * value;
-    //     atomicAdd(query_key_softmax_sum + global_col_offset + row, (__half2float(value_x_2.x) + __half2float(value_x_2.y)));
-    //     // half2 reduce_sum_x_2 = warpReduceSumHalf2((value*value));
-    //     // __syncthreads();
-    //     // half2 reduce_sum_x = warpReduceSumHalf2(value);
-    //     // __syncthreads();
-    //     // if((threadIdx.x & 31) == 0){
-    //     //     atomicAdd(query_key_softmax_sum + global_col_offset + row, (__half2float(reduce_sum_x_2.x) + __half2float(reduce_sum_x_2.y)));
-    //     //     atomicAdd(layer_norm_variance + global_col_offset + row, (__half2float(reduce_sum_x.x) + __half2float(reduce_sum_x.y)));
-    //     // }
-    //     // __syncthreads();
-    // }
-    // if(threadIdx.x < 64){
-    //     half2 reduce_sum_x_2 = half2(0, 0), reduce_sum_x = half2(0, 0);
-    //     const int row_stride = (kBlockRowTiles * kWmmaM + kAccSkew);
-    //     for(int i=0; i<kBlockColTiles * kWmmaN; ++i){
-    //         half2 value = ((half2*)acc_shared + threadIdx.x * row_stride + i * 2)[0];
-    //         half2 value_x_2 = value * value;
-    //         reduce_sum_x += value;
-    //         reduce_sum_x_2 += value_x_2;
-    //     }
-    //     atomicAdd(query_key_softmax_sum + global_col_offset + threadIdx.x, (__half2float(reduce_sum_x_2.x) + __half2float(reduce_sum_x_2.y)));
-    //     atomicAdd(layer_norm_variance + global_col_offset + threadIdx.x, (__half2float(reduce_sum_x.x) + __half2float(reduce_sum_x.y)));
-    // }
     float sum_x = 0, sum_x2=0;
     const int kVecSize = sizeof(half2) / sizeof(half);
     const int kNumRowTiles = kThreads / (kBlockColTiles * kWmmaN);
     const int offset = (threadIdx.x >> 6) << 5;
     const int cmp_shared_stride = (threadIdx.x & 63) * (kBlockRowTiles * kWmmaM + kAccSkew) + offset;
-
-    // Set all shared memory to 0
-    // for(int i=0; i<32; ++i){
-    //     int row = i * 2 + (threadIdx.x >> 6);
-    //     int col = threadIdx.x & 63;
-    //     acc_shared[row*(kBlockRowTiles * kWmmaM + kAccSkew) +col] = (half)(col*0.1);
-    //     short_cut_add_shared[row*(kBlockRowTiles * kWmmaM + kAccSkew) +col] = (half)(col*0.1);
-    // }
     __syncthreads();
     for(int i=0; i<(kBlockRowTiles * kWmmaM / kNumRowTiles / kVecSize); ++i){
-        half2 value = ((half2*)(acc_shared + cmp_shared_stride + (i << 1)))[0];
-        half2 short_cut = ((half2*)(short_cut_add_shared + cmp_shared_stride + (i << 1)))[0];
-        // half2 value=half2(1.0, 1.0);
-        // half2 short_cut=half2(1.0, 1.0);
+        int idx = cmp_shared_stride + (i << 1);
+        half2 value = ((half2*)(acc_shared + idx))[0];
+        half2 short_cut = ((half2*)(short_cut_add_shared + idx))[0];
         value += short_cut;
+        ((half2*)(acc_shared + idx))[0]=value;
         float2 value_f = __half22float2(value);
         sum_x += (value_f.x+value_f.y);
         sum_x2 += (value_f.x * value_f.x + value_f.y * value_f.y);
     }
     const int g_idx = col_block_id * (kBlockColTiles * kWmmaN) + (threadIdx.x & 63);
-    atomicAdd(query_key_softmax_sum + g_idx, sum_x);
-    atomicAdd(layer_norm_variance + g_idx, sum_x2);
+    atomicAdd(attn_layer_norm_sum + g_idx, sum_x);
+    atomicAdd(attn_layer_norm_variance + g_idx, sum_x2);
     __syncthreads();
   }
   grid.sync();
@@ -1502,13 +1454,13 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     uint64_t global_col_offset = batched_id * N + col_block_id * kBlockColTiles * kWmmaN;
     const int kThreadsPerBlock = 128;
     const int kComputeRowsPerIter = kThreadsPerBlock * sizeof(half2) / sizeof(half) / (kBlockRowTiles * kWmmaM);
+    int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
     for(int i=0; i<(kBlockColTiles * kWmmaN / kComputeRowsPerIter); ++i){
         int row = i * kComputeRowsPerIter + (threadIdx.x >> 5);
-        int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
         int idx = row * (kBlockRowTiles * kWmmaM + kAccSkew) + col;
         half2 value = ((half2*)(acc_shared + idx))[0];
-        float sum_x_2 = query_key_softmax_sum[global_col_offset + row];
-        float sum_x = layer_norm_variance[global_col_offset + row];
+        float sum_x = attn_layer_norm_sum[global_col_offset + row];
+        float sum_x_2 = attn_layer_norm_variance[global_col_offset + row];
         half standard_deviation = __float2half(sqrt((sum_x_2 - (sum_x * sum_x)/kHiddenDim) / kHiddenDim + __half2float(eps)));
         half mean = __float2half(sum_x / kHiddenDim);
         half2 norm;
@@ -1530,7 +1482,6 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     }
   }// End of attn_fc+short_cut_add
     grid.sync();
-    return;
   profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Begin of feed_forward_fc1 + relu
     if(blockIdx.x < 96){
@@ -2203,64 +2154,26 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     
     
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
-    uint64_t global_col_offset = batched_id * N + col_block_id * kGemmK6BlockColTiles * kWmmaN;
-    // Init reduce sum global memory
-    float* arr_shared[] = {query_key_softmax_sum, layer_norm_variance};
-    arr_shared[(threadIdx.x >> 6)][threadIdx.x & 63] = 0;
-    // if(threadIdx.x < 64){
-    //     query_key_softmax_sum[global_col_offset + (threadIdx.x & 63)] = 0;
-    // }else{
-    //     layer_norm_variance[global_col_offset + (threadIdx.x & 63)] = 0;
-    // }
-    __syncthreads();
-    // const int kComputeRowsPerIter = 128 * sizeof(half2) / sizeof(half) / (kGemmK6BlockRowTiles * kWmmaM);
-    // for(int i=0; i<(kGemmK6BlockColTiles * kWmmaN / kComputeRowsPerIter); ++i){
-    //     int row = i * kComputeRowsPerIter + (threadIdx.x >> 5);
-    //     int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
-    //     int idx = row * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) + col;
-    //     half2 value = ((half2*)(acc_shared + idx))[0] + ((half2*)(short_cut_add_shared + idx))[0];
-        
-    //     ((half2*)(acc_shared + idx))[0] = value;
-    //     half2 value_x_2 = value * value;
-    //     atomicAdd(query_key_softmax_sum + global_col_offset + row, (__half2float(value_x_2.x) + __half2float(value_x_2.y)));
-    //     atomicAdd(layer_norm_variance + global_col_offset + row, (__half2float(value.x) + __half2float(value.y)));
-    //     // half2 reduce_sum_x_2 = warpReduceSumHalf2((value*value));
-    //     // __syncthreads();
-    //     // half2 reduce_sum_x = warpReduceSumHalf2(value);
-    //     // __syncthreads();
-    //     // if((threadIdx.x & 31) == 0){
-    //     //     atomicAdd(query_key_softmax_sum + global_col_offset + row, (__half2float(reduce_sum_x_2.x) + __half2float(reduce_sum_x_2.y)));
-    //     //     atomicAdd(layer_norm_variance + global_col_offset + row, (__half2float(reduce_sum_x.x) + __half2float(reduce_sum_x.y)));
-    //     // }
-    //     // __syncthreads();
-    // }
-    // if(threadIdx.x < 64){
-    //     half2 reduce_sum_x_2 = half2(0, 0), reduce_sum_x = half2(0, 0);
-    //     const int row_stride = (kGemmK6BlockRowTiles * kWmmaM + kAccSkew);
-    //     for(int i=0; i<kGemmK6BlockColTiles * kWmmaN; ++i){
-    //         half2 value = ((half2*)acc_shared + threadIdx.x * row_stride + i * 2)[0];
-    //         half2 value_x_2 = value * value;
-    //         reduce_sum_x += value;
-    //         reduce_sum_x_2 += value_x_2;
-    //     }
-    //     atomicAdd(query_key_softmax_sum + global_col_offset + threadIdx.x, (__half2float(reduce_sum_x_2.x) + __half2float(reduce_sum_x_2.y)));
-    //     atomicAdd(layer_norm_variance + global_col_offset + threadIdx.x, (__half2float(reduce_sum_x.x) + __half2float(reduce_sum_x.y)));
-    // }
-    // __syncthreads();
         float sum_x = 0, sum_x2=0;
         const int kVecSize = sizeof(half2) / sizeof(half);
         const int kNumRowTiles = kThreads / (kGemmK6BlockColTiles * kWmmaN);
         const int offset = (threadIdx.x >> 6) << 5;
-        const int cmp_shared_stride = threadIdx.x * (kGemmK6BlockRowTiles * kWmmaM) + offset;
+        const int cmp_shared_stride = (threadIdx.x & 63) * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) + offset;
+        __syncthreads();
         for(int i=0; i<(kGemmK6BlockRowTiles * kWmmaM / kNumRowTiles / kVecSize); ++i){
-            half2 value = ((half2*)(acc_shared + cmp_shared_stride + (i << 1)))[0];
+            int idx = cmp_shared_stride + (i << 1);
+            half2 value = ((half2*)(acc_shared + idx))[0];
+            half2 short_cut = ((half2*)(short_cut_add_shared + idx))[0];
+            value += short_cut;
+            ((half2*)(acc_shared + idx))[0]=value;
             float2 value_f = __half22float2(value);
             sum_x += (value_f.x+value_f.y);
             sum_x2 += (value_f.x * value_f.x + value_f.y * value_f.y);
         }
-        const int g_idx = row_block_id * (kGemmK6BlockColTiles * kWmmaN) + (threadIdx.x & 63);
-        atomicAdd(query_key_softmax_sum + g_idx, sum_x);
-        atomicAdd(layer_norm_variance + g_idx, sum_x2);
+        const int g_idx = col_block_id * (kGemmK6BlockColTiles * kWmmaN) + (threadIdx.x & 63);
+        atomicAdd(feed_forward_layernorm_sum + g_idx, sum_x);
+        atomicAdd(feed_forward_layernorm_variance + g_idx, sum_x2);
+        __syncthreads();
     }
     grid.sync();
     
@@ -2314,13 +2227,13 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     uint64_t global_col_offset = batched_id * N + col_block_id * kGemmK6BlockColTiles * kWmmaN;
     const int kThreadsPerBlock = 128;
     const int kComputeRowsPerIter = kThreadsPerBlock * sizeof(half2) / sizeof(half) / (kGemmK6BlockRowTiles * kWmmaM);
+    int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
     for(int i=0; i<(kGemmK6BlockColTiles * kWmmaN / kComputeRowsPerIter); ++i){
         int row = i * kComputeRowsPerIter + (threadIdx.x >> 5);
-        int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
         int idx = row * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) + col;
         half2 value = ((half2*)(acc_shared + idx))[0];
-        float sum_x_2 = query_key_softmax_sum[global_col_offset + row];
-        float sum_x = layer_norm_variance[global_col_offset + row];
+        float sum_x = feed_forward_layernorm_sum[global_col_offset + row];
+        float sum_x_2 = feed_forward_layernorm_variance[global_col_offset + row];
         half standard_deviation = __float2half(sqrt((sum_x_2 - (sum_x * sum_x)/kHiddenDim) / kHiddenDim + __half2float(eps)));
         half mean = __float2half(sum_x / kHiddenDim);
         half2 norm;
@@ -2330,7 +2243,6 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
         __syncthreads();
     }
     
-
     half *c_dst_base = feed_forward_fc2_output + row_block_id * kGemmK6BlockRowTiles * kWmmaM +
                        (col_block_id * kGemmK6BlockColTiles * kWmmaN +
                         threadIdx.x / kStoreCLanesPerRow) *

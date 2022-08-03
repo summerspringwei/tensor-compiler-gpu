@@ -177,7 +177,10 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   auto attn_fc_output = torch::zeros({batch_size*max_seq_length, d_model}, options_fp16);
   auto feed_forward_fc1_output = torch::zeros({batch_size*max_seq_length, d_intermedia}, options_fp16);
   auto feed_forward_fc2_output = torch::zeros({batch_size*max_seq_length, d_model}, options_fp16);
-  auto layer_norm_variance = torch::zeros({batch_size*max_seq_length, }, options_fp32);
+  auto attn_layer_norm_sum = torch::zeros({batch_size*max_seq_length, }, options_fp32);
+  auto attn_layer_norm_variance = torch::zeros({batch_size*max_seq_length, }, options_fp32);
+  auto feed_forward_layer_norm_sum = torch::zeros({batch_size*max_seq_length, }, options_fp32);
+  auto feed_forward_layer_norm_variance = torch::zeros({batch_size*max_seq_length, }, options_fp32);
   const int kProfileStages = 10, max_blocks=108, max_num_warp=4;
   auto profile_clock = torch::zeros({kProfileStages, max_blocks, max_num_warp}, options_int64);
   
@@ -198,13 +201,17 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   at::Half* ptr_feed_forward_fc1_output = feed_forward_fc1_output.data<at::Half>();
   at::Half* ptr_feed_forward_fc2_weight = feed_forward_fc2_weight.data<at::Half>();
   at::Half* ptr_feed_forward_fc2_output = feed_forward_fc2_output.data<at::Half>();
-  float* ptr_layer_norm_variance = layer_norm_variance.data<float>();
-  at::Half* ptr_t_attn_fc_layer_norm_output = t_attn_fc_layer_norm_output.data<at::Half>();
-  at::Half* ptr_t_feed_forward_fc2_output = t_feed_forward_fc2_output.data<at::Half>();
+  float* ptr_attn_layer_norm_sum = attn_layer_norm_sum.data<float>();
+  float* ptr_attn_layer_norm_variance = attn_layer_norm_variance.data<float>();
+  float* ptr_feed_forward_layer_norm_sum = feed_forward_layer_norm_sum.data<float>();
+  float* ptr_feed_forward_layer_norm_variance = feed_forward_layer_norm_variance.data<float>();
   int64_t* ptr_profile_clock = profile_clock.data<int64_t>();
   // Pointers from torch
+  at::Half* ptr_t_attn_fc_layer_norm_output = t_attn_fc_layer_norm_output.data<at::Half>();
+  at::Half* ptr_t_feed_forward_fc2_output = t_feed_forward_fc2_output.data<at::Half>();
   at::Half* ptr_t_attn_fc_output = t_attn_fc_output.data<at::Half>();
   at::Half* ptr_t_attn_fc_short_cut_add = t_attn_fc_short_cut_add.data<at::Half>();
+  at::Half* ptr_t_feed_forward_fc2_short_cut_output =t_feed_forward_fc2_short_cut_output.data<at::Half>();
 
   half eps = 0.00001, gama=1, beta = 0;
   // 0. My Fused bert
@@ -219,15 +226,18 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
     (void *)&(ptr_attn_value_output),
     (void *)&(ptr_attn_fc_weight),
     (void *)&(ptr_attn_fc_output),
-    (void *)&(ptr_layer_norm_variance),
+    (void *)&(ptr_attn_layer_norm_sum),
+    (void *)&(ptr_attn_layer_norm_variance),
     (void *)&(eps), (void *)&(gama), (void *)&(beta),
     (void *)&(ptr_feed_forward_fc1_weight),
     (void *)&(ptr_feed_forward_fc1_output),
     (void *)&(ptr_feed_forward_fc2_weight),
     (void *)&(ptr_feed_forward_fc2_output),
+    (void *)&(ptr_feed_forward_layer_norm_sum),
+    (void *)&(ptr_feed_forward_layer_norm_variance),
     (void *)&(ptr_profile_clock),
-    (void *)&(ptr_t_attn_fc_output),
-    (void *)&(ptr_t_attn_fc_short_cut_add),
+    (void *)&(ptr_t_feed_forward_fc2_output),
+    (void *)&(ptr_t_feed_forward_fc2_short_cut_output),
   };
   const size_t fused_bert_shared_mem = 128*1024;
   printf("cudaFuncSetAttribute\n");
@@ -413,15 +423,15 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_attn_fc_short_cut_add, attn_fc_output, 1.0/16, 1.0/1024, 2);
   auto attn_fc_layer_norm_x_2 = torch::slice(query_key_softmax_sum, 0, 0, 1);
-  my_compare(t_attn_fc_layer_norm_x, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
-  my_compare(t_attn_fc_layer_norm_x_2, layer_norm_variance, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_attn_fc_layer_norm_x, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_attn_fc_layer_norm_x_2, layer_norm_variance, 1.0/16, 1.0/1024, 2);
   my_compare(t_attn_fc_layer_norm_output, attn_fc_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_feed_forward_fc2_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_feed_forward_fc2_short_cut_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_feed_forward_fc2_layer_norm_sum_x, layer_norm_variance, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
+  my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, feed_forward_layer_norm_variance, 1.0/16, 1.0/1024, 2);
+  my_compare(t_feed_forward_fc2_layer_norm_sum_x, feed_forward_layer_norm_sum, 1.0/16, 1.0/1024, 2);
+  my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
   printf("Comparing results finshed\n");
 
   // Benchmark
