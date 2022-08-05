@@ -1369,7 +1369,7 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     __syncthreads();
     pipe.consumer_release();
     
-    
+    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
     float sum_x = 0, sum_x2=0;
     const int kVecSize = sizeof(half2) / sizeof(half);
@@ -2098,30 +2098,7 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
         }
     }
 
-    __syncthreads();
-
-    const int c_reduce_stride =
-        kReduceCColsPerIter * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew);
-    const int c_reduce_k_stride = kGemmK6BlockColTiles * kWmmaN *
-                                  (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) *
-                                  sizeof(half) / sizeof(half2);
-    half *c_reduce_base = acc_shared +
-                          threadIdx.x / kReduceCLanesPerRow *
-                              (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) +
-                          (threadIdx.x & (kReduceCLanesPerRow - 1)) *
-                              sizeof(half2) / sizeof(half);
-#pragma unroll
-    for (int i = 0; i < kGemmK6BlockColTiles * kWmmaN / kReduceCColsPerIter;
-         ++i) {
-        half2 *c_reduce_src =
-            reinterpret_cast<half2 *>(c_reduce_base + i * c_reduce_stride);
-#pragma unroll
-        for (int k = 1; k < kGemmK6BlockSliceKTiles; ++k) {
-            *c_reduce_src += *(c_reduce_src + k * c_reduce_k_stride);
-        }
-    }
-    __syncthreads();
-    // Short cut
+    // Load Short cut
     const int N = kSeqLength;
     const int M = kHiddenDim;
     half* short_cut_add_shared = acc_shared + 
@@ -2154,11 +2131,37 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
                             (float4*)(src_base + i * c_dst_stride), shape, pipe);
     }
     pipe.producer_commit();
+
+    __syncthreads();
+
+    const int c_reduce_stride =
+        kReduceCColsPerIter * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew);
+    const int c_reduce_k_stride = kGemmK6BlockColTiles * kWmmaN *
+                                  (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) *
+                                  sizeof(half) / sizeof(half2);
+    half *c_reduce_base = acc_shared +
+                          threadIdx.x / kReduceCLanesPerRow *
+                              (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) +
+                          (threadIdx.x & (kReduceCLanesPerRow - 1)) *
+                              sizeof(half2) / sizeof(half);
+#pragma unroll
+    for (int i = 0; i < kGemmK6BlockColTiles * kWmmaN / kReduceCColsPerIter;
+         ++i) {
+        half2 *c_reduce_src =
+            reinterpret_cast<half2 *>(c_reduce_base + i * c_reduce_stride);
+#pragma unroll
+        for (int k = 1; k < kGemmK6BlockSliceKTiles; ++k) {
+            *c_reduce_src += *(c_reduce_src + k * c_reduce_k_stride);
+        }
+    }
+    __syncthreads();
+    
+    // Wait for short_cut
     pipe.consumer_wait();
     __syncthreads();
     pipe.consumer_release();
     
-    
+    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
         float sum_x = 0, sum_x2=0;
         const int kVecSize = sizeof(half2) / sizeof(half);
@@ -2286,7 +2289,7 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
             *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
     }
     }
-    grid.sync();
+    // grid.sync();
     
   profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
 }

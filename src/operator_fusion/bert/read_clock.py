@@ -1,17 +1,27 @@
-f = open("/home/xiachunwei/Projects/tensor-compiler-gpu/release/block0.txt", 'r')
-lines = f.readlines()
-idx = 0
-last_timestep = 0
-for line in lines:
-  line = line.strip()
-  if idx == 0:
-    last_timestep = int(line)
-    idx+=1
-  else:
-    current = int(line)
-    if(current==0):
-      break;
-    latency = (current - last_timestep) / 1410
-    print(latency)
-    last_timestep = current
+'''
+This file parse latency from fused kernels and prints the layerwise latency.
+'''
+import torch
+import numpy as np
 
+
+def read_profile_cycles(file_path, gpu_freqency, minimal_blocks):
+  tensor_model = torch.jit.load(file_path)
+  tensor = list(tensor_model.parameters())[0]
+  [stages, blocks, warps] = tensor.shape
+  tensor = tensor[:, 0:minimal_blocks, :]
+  cycles_stage = torch.zeros((stages-1, minimal_blocks, warps), dtype=torch.int64)
+  latency_stage = torch.zeros((stages-1, minimal_blocks), dtype=torch.float32)
+  for i in range(stages-1):
+    cycles_stage[i] = (tensor[i+1]-tensor[i]).cpu()
+    print(cycles_stage[i])
+    latency_stage[i] = torch.mean((cycles_stage[i] / gpu_freqency).to(torch.float32), 1)
+  
+  layer_latency = torch.mean(latency_stage, 1)
+  print(layer_latency)
+  print(torch.sum(layer_latency))
+
+
+if __name__=="__main__":
+  file_path = "/home/xiachunwei/Projects/tensor-compiler-gpu/release/profile_clock.pt"
+  read_profile_cycles(file_path, 1410, 72)

@@ -181,7 +181,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   auto attn_layer_norm_variance = torch::zeros({batch_size*max_seq_length, }, options_fp32);
   auto feed_forward_layer_norm_sum = torch::zeros({batch_size*max_seq_length, }, options_fp32);
   auto feed_forward_layer_norm_variance = torch::zeros({batch_size*max_seq_length, }, options_fp32);
-  const int kProfileStages = 10, max_blocks=108, max_num_warp=4;
+  const int kProfileStages = 12, max_blocks=108, max_num_warp=4;
   auto profile_clock = torch::zeros({kProfileStages, max_blocks, max_num_warp}, options_int64);
   
 
@@ -333,15 +333,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
             (kChunkK * kWmmaK + kInputSkew))) *
       sizeof(half);
   printf("gemm_k5 shared memory %d, blocks %d\n", gemm_k5_shared_mem, gemm_k5_blocks);
-  // checkCuda(cudaFuncSetAttribute((const void *)gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
-  //                                 kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>, 
-  //                                 cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k5_shared_mem));
-  // AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_feed_forward_fc1", [&]{
-  //   checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
-  //                                 kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>, 
-  //                                 dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feed_forward_fc1_kernel_args, gemm_k5_shared_mem));
-  // });
-
+  // 6.
   void* fused_feed_forward_fc2_kernel_args[] = {
     (void*)&(ptr_feed_forward_fc2_weight), (void*)&(ptr_feed_forward_fc1_output), (void*)&(ptr_feed_forward_fc2_output)
   };
@@ -357,18 +349,30 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   checkCuda(cudaFuncSetAttribute((const void *)gemm_k6, 
                                   cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k6_shared_mem));
 
+  // 7. we use the result from torch
+  auto tmp_feed_forward_fc1_output = torch::ones({batch_size*max_seq_length, d_intermedia}, options_fp16);
+  at::Half* ptr_tmp_feed_forward_fc1_output = tmp_feed_forward_fc1_output.data<at::Half>();
+  auto tmp_feed_forward_fc2_weight = torch::ones({d_intermedia, d_model}, options_fp16);
+  at::Half* ptr_tmp_feed_forward_fc2_weight = tmp_feed_forward_fc2_weight.data<at::Half>();
   void* fused_feedforward_kernel_args[] = {
-    (void*)&(ptr_feed_forward_fc1_weight), (void*)&(ptr_attn_fc_output), (void*)&(ptr_feed_forward_fc1_output)
+    // (void *)&(ptr_attn_fc_output),
+    (void *)&(ptr_t_attn_fc_layer_norm_output),
+    (void *)&(eps), (void *)&(gama), (void *)&(beta),
+    (void *)&(ptr_feed_forward_fc1_weight),
+    // (void *)&(ptr_tmp_feed_forward_fc1_output),
+    // (void *)&(ptr_tmp_feed_forward_fc2_weight),
+    (void *)&(ptr_feed_forward_fc1_output),
+    (void *)&(ptr_feed_forward_fc2_weight),
+    (void *)&(ptr_feed_forward_fc2_output),
+    (void *)&(ptr_feed_forward_layer_norm_sum),
+    (void *)&(ptr_feed_forward_layer_norm_variance),
+    (void *)&(ptr_profile_clock),
+    (void *)&(ptr_t_feed_forward_fc2_output)
   };
-  // __global__ void fused_sqq_feedforward(half* __restrict__ attn_fc_output,
-  //                               half* __restrict__ feed_forward_fc1_weight,
-  //                               half* __restrict__ feed_forward_fc1_output,
-  //                               half* __restrict__ feed_forward_fc2_weight,
-  //                               half* __restrict__ feed_forward_fc2_output,
-  //                               half eps, half h_gama, half h_beta,
-  //                               float * query_key_softmax_sum,
-  //                               float* layer_norm_variance,
-  //                               int64_t* profile_grid_clock)
+  const size_t fused_feed_forward_shared_mem_size = gemm_k5_shared_mem + kStage * (kGemmK6BlockSliceKTiles * kWmmaK *
+                           (kGemmK6BlockRowTiles * kWmmaM + kInputSkew)) * sizeof(half2);
+  checkCuda(cudaFuncSetAttribute((const void *)fused_sqq_feedforward, 
+                                  cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_feed_forward_shared_mem_size));
   
   auto device_func = [&](int func_id){
     switch (func_id)
@@ -406,6 +410,11 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
                                       dim3(gemm_k6_blocks,1,1), dim3(128, 1,1), fused_feed_forward_fc2_kernel_args, gemm_k6_shared_mem));
       });
       break;
+    case 6:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_fused_feed_forward", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_feedforward, 
+                                      dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_feed_forward_shared_mem_size));
+      });
     default:
       break;
     }
@@ -417,21 +426,21 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   
   // Check result
   auto value = torch::reshape(torch::split(output_qkv, 1, 0)[2], {num_heads, max_seq_length, hidden_size});
-  my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_query_key_output_sum, query_key_softmax_sum, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_query_key_output_sum, query_key_softmax_sum, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_attn_fc_short_cut_add, attn_fc_output, 1.0/16, 1.0/1024, 2);
   auto attn_fc_layer_norm_x_2 = torch::slice(query_key_softmax_sum, 0, 0, 1);
   // my_compare(t_attn_fc_layer_norm_x, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
   // my_compare(t_attn_fc_layer_norm_x_2, layer_norm_variance, 1.0/16, 1.0/1024, 2);
-  my_compare(t_attn_fc_layer_norm_output, attn_fc_output, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, 2);
+  // my_compare(t_attn_fc_layer_norm_output, attn_fc_output, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_feed_forward_fc2_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_feed_forward_fc2_short_cut_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
-  my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, feed_forward_layer_norm_variance, 1.0/16, 1.0/1024, 2);
-  my_compare(t_feed_forward_fc2_layer_norm_sum_x, feed_forward_layer_norm_sum, 1.0/16, 1.0/1024, 2);
-  my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
+  my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, feed_forward_layer_norm_variance, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_feed_forward_fc2_layer_norm_sum_x, feed_forward_layer_norm_sum, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, compare_level);
   printf("Comparing results finshed\n");
 
   // Benchmark
@@ -468,12 +477,14 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
     for(int j=0; j<108; ++j){
       for(int k=0; k<4; ++k){
         if(i>0){
-          printf("stage: %d, block: %d, warp: %d, latency: %ld\n", 
+          printf("stage: %d, block: %d, warp: %d, cycles: %ld\n", 
             i-1, j, k, profile_clock[i][j][k].item().toLong() - profile_clock[i-1][j][k].item().toLong());
         }
       }
     }
   }
+  
+  torch::save(profile_clock, "profile_clock.pt");
 
   checkCuda(cudaEventDestroy(startEvent));
   checkCuda(cudaEventDestroy(stopEvent));
@@ -488,6 +499,6 @@ int main(int argc, char** argv){
   }if(argc>3){
     type = atoi(argv[3]);
   }
-  test_bert_attn<1, 12, 384, 64, 3072>(round, loop);
+  test_bert_attn<1, 12, 384, 64, 3072>(round, loop, type);
   return 0;
 }
