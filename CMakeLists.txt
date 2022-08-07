@@ -88,6 +88,8 @@ add_executable(cu_fused_pw_dw_conv src/operator_fusion/fused_depthwise_pointwise
 add_executable(transformer_query_key_softmax_main src/operator_fusion/transformer/transformer_query_key_softmax_main.cu)
 add_executable(swin_transformer_query_key_softmax_main src/operator_fusion/transformer/swin_transformer_query_key_softmax_main.cu)
 
+# target_compile_definitions(torch_bert_attn_sqq PRIVATE REWRITE_RESULT_DEBUG=0)
+
 # set_target_properties(lstm_wavefront_magic PROPERTIES CUDA_ARCHITECTURES "70;75;80")
 target_link_libraries(cudnn_conv cudnn)
 target_link_libraries(cudnn_infer_ops cudnn cuda cublas)

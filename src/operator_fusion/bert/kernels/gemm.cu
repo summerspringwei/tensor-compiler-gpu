@@ -1,10 +1,13 @@
 #include "bert.h"
 #include <cooperative_groups.h>
 #include <cuda/pipeline>
+#include <mma.h>
+
 #include "fused_sqq_bert.cu"
 #include "gemm_three_stages.h"
 #include "fused_sqq_feedforward.cu"
-#include <mma.h>
+#include "fused_sqq_bert_pipelined.cu"
+
 
 using namespace fuselage::experiments::networks::bert;
 

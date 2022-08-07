@@ -25,49 +25,6 @@
 using namespace fuselage::experiments::networks::bert;
 /* This bert is based on the implementation of Qianqi Sun*/
 
-// __global__ void gemm_add_qkv_bias(const half *__restrict__ matrix_a,
-//                                   const half *__restrict__ matrix_b,
-//                                   const half *__restrict__ bias,
-//                                   half *__restrict__ matrix_c);
-// __global__ void gemm_k2(const half *__restrict__ matrix_a,
-//                         const half *__restrict__ matrix_b,
-//                         half *__restrict__ matrix_c);
-// __global__ void gemm_reshape(const half *__restrict__ matrix_a,
-//                              const half *__restrict__ matrix_b,
-//                              half *__restrict__ matrix_c);
-// __global__ void gemm_k6(const half *__restrict__ matrix_a,
-//                         const half *__restrict__ matrix_b,
-//                         half *__restrict__ matrix_c);
-// extern __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight, 
-//                                 half *__restrict__ src,
-//                                 const half *__restrict__ qkv_bias,
-//                                 half *__restrict__ qkv_output,
-//                                 half *__restrict__ query_key_output,
-//                                 half *__restrict__ query_key_mask,
-//                                 float * query_key_softmax_sum,
-//                                 half *__restrict__ attn_value_output,
-//                                 half* __restrict__ attn_fc_weight,
-//                                 half* __restrict__ attn_fc_output,
-//                                 float* layer_norm_variance,
-//                                 half eps, half h_gama, half h_beta,
-//                                 half* __restrict__ feed_forward_fc1_weight,
-//                                 half* __restrict__ feed_forward_fc1_output,
-//                                 half* __restrict__ feed_forward_fc2_weight,
-//                                 half* __restrict__ feed_forward_fc2_output,
-//                                 int64_t* profile_grid_clock,
-//                                 );
-
-// extern __global__ void
-// gemm_three_stage<kGemmK4WarpRowTiles, kGemmK4WarpColTiles, kHiddenDim,
-//                  kSeqLength, kHiddenDim, 1>(const half *__restrict__ matrix_a,
-//                                             const half *__restrict__ matrix_b,
-//                                             half *__restrict__ matrix_c);
-
-// extern __global__ void
-// gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
-//                  kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>(
-//     const half *__restrict__ matrix_a, const half *__restrict__ matrix_b,
-//     half *__restrict__ matrix_c);
 
 template<int64_t batch_size, int64_t num_heads, int64_t max_seq_length, int64_t hidden_size, int64_t d_intermedia>
 float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
@@ -215,12 +172,19 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
 
   half eps = 0.00001, gama=1, beta = 0;
   // 0. My Fused bert
+  auto tmp_qkv_output = torch::ones({3, max_seq_length, d_model}, options_fp16);
+  auto tmp_query_key_output = torch::ones({num_heads, max_seq_length, max_seq_length}, options_fp16);
+  at::Half* ptr_tmp_qkv_output = tmp_qkv_output.data<at::Half>();
+  at::Half* ptr_tmp_query_key_output = tmp_query_key_output.data<at::Half>();
+  
   void * fused_bert_kernel_args[] = {
     (void *)&(ptr_weight_qkv), 
     (void *)&(ptr_src), 
     (void *)&(ptr_bias_qkv), 
     (void *)&(ptr_output_qkv), 
+    // (void *)&(ptr_tmp_qkv_output), 
     (void *)&(ptr_query_key_output),
+    // (void *)&(ptr_tmp_query_key_output),
     (void *)&(ptr_t_attn_mask),
     (void *)&(ptr_query_key_softmax_sum),
     (void *)&(ptr_attn_value_output),
@@ -240,9 +204,9 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
     (void *)&(ptr_t_feed_forward_fc2_short_cut_output),
   };
   const size_t fused_bert_shared_mem = 128*1024;
-  printf("cudaFuncSetAttribute\n");
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
-  printf("cudaFuncSetAttribute\n");
+  checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert_pipelined, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
+  
   // 1. fused qkv matmul
   void* fused_attn_kernel_args[] = {(void *)&(ptr_weight_qkv), (void *)&(ptr_src), 
     (void *)&(ptr_bias_qkv), (void *)&(ptr_output_qkv)
@@ -415,6 +379,13 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
         checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_feedforward, 
                                       dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_feed_forward_shared_mem_size));
       });
+      break;
+    case 7:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_fused_feed_forward", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_bert_pipelined, 
+                                      dim3(108,1,1), dim3(128, 1,1), fused_bert_kernel_args, fused_bert_shared_mem));
+      });
+      break;
     default:
       break;
     }
@@ -426,10 +397,10 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   
   // Check result
   auto value = torch::reshape(torch::split(output_qkv, 1, 0)[2], {num_heads, max_seq_length, hidden_size});
-  // my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
-  // my_compare(t_query_key_output_sum, query_key_softmax_sum, 1.0/16, 1.0/1024, compare_level);
-  // my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, compare_level);
-  // my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_query_key_output_sum, query_key_softmax_sum, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_attn_fc_short_cut_add, attn_fc_output, 1.0/16, 1.0/1024, 2);
   auto attn_fc_layer_norm_x_2 = torch::slice(query_key_softmax_sum, 0, 0, 1);
   // my_compare(t_attn_fc_layer_norm_x, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);

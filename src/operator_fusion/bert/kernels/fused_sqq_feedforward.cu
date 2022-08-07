@@ -530,20 +530,6 @@ __syncthreads();
     pipe.consumer_wait();
     __syncthreads();
     pipe.consumer_release();
-    // Check Load 
-    const int kCompareRowsPerIter = kThreads / (kGemmK6BlockRowTiles * kWmmaM);
-    // for(int i=0; i<(kGemmK6BlockSliceKTiles * kWmmaK / kCompareRowsPerIter); ++i){
-    //   int row = i * kCompareRowsPerIter + (threadIdx.x >> 6);
-    //   int col = threadIdx.x & 63;
-    //   auto value = matrix_a_shared[0][row*(kGemmK6BlockRowTiles * kWmmaM + kAccSkew)+col];
-    //   if(value!=half(1)){
-    //     printf("0: shared wrong! block: %d thread: %d: ours: %f\n", blockIdx.x, threadIdx.x, __half2float(value));
-    //   }
-    //   value = matrix_a_shared[1][row*(kGemmK6BlockRowTiles * kWmmaM + kAccSkew)+col];
-    //   if(value!=half(1)){
-    //     printf("shared wrong! block: %d thread: %d: ours: %f\n", blockIdx.x, threadIdx.x, __half2float(value));
-    //   }
-    // }
 #pragma unroll
     for (int s = 0; s < kStage - 1; ++s) {
         pipe.producer_acquire();
@@ -628,15 +614,6 @@ __syncthreads();
         __syncthreads();
         pipe.consumer_release();
 
-    // for(int i=0; i<(kGemmK6BlockSliceKTiles * kWmmaK / kCompareRowsPerIter); ++i){
-    //   int row = i * kCompareRowsPerIter + (threadIdx.x >> 6);
-    //   int col = threadIdx.x & 63;
-    //   auto value = matrix_a_shared[stage][row*(kGemmK6BlockRowTiles * kWmmaM + kAccSkew)+col];
-    //   if(value!=half(1)){
-    //     printf("634: shared wrong! block: %d thread: %d: ours: %f\n", blockIdx.x, threadIdx.x, __half2float(value));
-    //   }
-    // }
-
 #pragma unroll
         for (int tile_m = 0; tile_m < kGemmK6BlockRowTiles; ++tile_m) {
             nvcuda::wmma::load_matrix_sync(
@@ -678,14 +655,6 @@ __syncthreads();
         pipe.consumer_wait();
         __syncthreads();
         pipe.consumer_release();
-        // for(int i=0; i<(kGemmK6BlockSliceKTiles * kWmmaK / kCompareRowsPerIter); ++i){
-        //   int row = i * kCompareRowsPerIter + (threadIdx.x >> 6);
-        //   int col = threadIdx.x & 63;
-        //   auto value = matrix_a_shared[stage][row*(kGemmK6BlockRowTiles * kWmmaM + kAccSkew)+col];
-        //   if(value!=half(1)){
-        //     printf("684: shared wrong! block: %d thread: %d: ours: %f\n", blockIdx.x, threadIdx.x, __half2float(value));
-        //   }
-        // }
 #pragma unroll
         for (int tile_m = 0; tile_m < kGemmK6BlockRowTiles; ++tile_m) {
             nvcuda::wmma::load_matrix_sync(
@@ -758,29 +727,6 @@ __syncthreads();
     }
     __syncthreads();
 
-    // Check all results
-    // const int kCompareRowsPerIter = kThreads / (kGemmK6BlockRowTiles * kWmmaM);
-    // for(int i=0; i<(kGemmK6BlockColTiles * kWmmaN / kCompareRowsPerIter); ++i){
-    //   int row = i * kCompareRowsPerIter + (threadIdx.x >> 6);
-    //   int col = threadIdx.x & 63;
-    //   int g_row = col_block_id * (kGemmK6BlockColTiles * kWmmaN) + row;
-    //   int g_col = row_block_id * (kGemmK6BlockRowTiles * kWmmaM) + col;
-    //   auto a = acc_shared[row*(kGemmK6BlockRowTiles * kWmmaM + kAccSkew)+col];
-    //   auto b = t_feed_forward_fc2_output[g_row * 768 + g_col];
-    //   // if(a!=half(3072)){
-    //   if(__habs(a - b) > half(1.0/16) * __habs(b) + half(1.0/1024) || __hisnan(a) || __hisinf(a)){
-    //     printf("block: %d thread: %d: ours: %f, torch: %f\n", blockIdx.x, threadIdx.x, __half2float(a));
-    //   }
-    // }
-    // if(threadIdx.x<64){
-    //   int global_offset = row_block_id*64+col_block_id*64*768;
-    //   auto a = acc_shared[threadIdx.x];
-    //   auto b = t_feed_forward_fc2_output[global_offset + threadIdx.x];
-    //   auto b = half(3072);
-    //   // if(__habs(a - b) > half(1.0/16) * __habs(b) + half(1.0/1024) || __hisnan(a)){
-    //     printf("block: %d thread: %d: ours: %f, torch: %f\n", blockIdx.x, threadIdx.x, __half2float(a), __half2float(b));
-    //   }
-    // }
     // Short cut
     const int N = kSeqLength;
     const int M = kHiddenDim;
