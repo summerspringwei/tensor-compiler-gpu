@@ -712,16 +712,22 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     const int col_shared_size = (kBlockColTiles * kWmmaN);
     float* softmax_sum_base_ptr = query_key_softmax_sum + batched_id * kSeqLength + 
         col_block_id * kBlockColTiles * kWmmaN;
+    // Load to softmax to shared
+    float* softmax_shared = (float*)(acc_shared + col_shared_size * row_shared_size);
+    softmax_shared[threadIdx.x] = 1.0 / softmax_sum_base_ptr[threadIdx.x];
+    __syncthreads();
     const int kNormalizePerIter = kThreads * kHalf2Vec / (kBlockRowTiles * kWmmaM);
+    const int row_offset = (threadIdx.x >> 6);
+    const int col_offset = (threadIdx.x & 63) * kHalf2Vec;
     for(int i=0; i<kBlockColTiles * kWmmaN / kNormalizePerIter; ++i){
-      const int row_shared = i * kNormalizePerIter + (threadIdx.x >> 6);
-      int idx = row_shared * row_shared_size + (threadIdx.x & 63) * kHalf2Vec;
-      float softmax_sum = (softmax_sum_base_ptr + row_shared)[0];
-      auto attn_value = ((half2*)(acc_shared + idx))[0];
-      half2 normalized;
-      normalized.x = __float2half(__half2float(attn_value.x) / softmax_sum);
-      normalized.y = __float2half(__half2float(attn_value.y) / softmax_sum);
-      ((half2*)(acc_shared + idx))[0] = normalized;
+      const int row_shared = i * kNormalizePerIter + row_offset;
+      int idx = row_shared * row_shared_size + col_offset;
+      auto softmax_sum = (softmax_shared + row_shared)[0];
+      auto attn_value = __half22float2(((half2*)(acc_shared + idx))[0]);
+      float2 normalized;
+      normalized.x = attn_value.x * softmax_sum;
+      normalized.y = attn_value.y * softmax_sum;
+      ((half2*)(acc_shared + idx))[0] = __float22half2_rn(normalized);
     }
     __syncthreads();
 
@@ -1453,7 +1459,7 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
         half mean = __float2half(sum_x / kHiddenDim);
         half standard_deviation = __float2half(sqrt((sum_x_2 - (sum_x * sum_x)/kHiddenDim) / kHiddenDim + __half2float(eps)));
         ((half*)shared_attn_layer_norm_sum + threadIdx.x)[0] = mean;
-        ((half*)shared_attn_layer_norm_variance + threadIdx.x)[0] = standard_deviation;
+        ((half*)shared_attn_layer_norm_variance + threadIdx.x)[0] = half(1.0) / standard_deviation;
     }
     __syncthreads();
     // Compute short cut add and layer norm variance
@@ -1463,15 +1469,16 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
     half2 gama_h2(h_gama, h_gama);
     half2 beta_h2(h_beta, h_beta);
+    const int row_offset = (threadIdx.x >> 5);
     for(int i=0; i<(kBlockColTiles * kWmmaN / kComputeRowsPerIter); ++i){
-        int row = i * kComputeRowsPerIter + (threadIdx.x >> 5);
+        int row = i * kComputeRowsPerIter + row_offset;
         int idx = row * (kBlockRowTiles * kWmmaM + kAccSkew) + col;
         half2 value = ((half2*)(acc_shared + idx))[0];
         half mean = ((half*)shared_attn_layer_norm_sum)[row];
         half standard_deviation = ((half*)shared_attn_layer_norm_variance)[row];
         half2 mean_h2(mean, mean);
         half2 standard_deviation_h2(standard_deviation, standard_deviation);
-        half2 norm = ((value - mean_h2) / standard_deviation_h2) * gama_h2 + beta_h2;
+        half2 norm = ((value - mean_h2) * standard_deviation_h2) * gama_h2 + beta_h2;
         ((half2*)(acc_shared + idx))[0] = norm;
     }
     __syncthreads();
@@ -1781,10 +1788,11 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
         kStoreCColsPerIter * (kBlockRowTiles * kWmmaM + kAccSkew);
     // Shared sizeL (6*16, 8*16)
     // Do activation (Relu)
+    int col = (threadIdx.x & 63) * 2;
+    const int row_offset = (threadIdx.x >> 6);
     const int kComputeRowsPerIter = 128 * (sizeof(half2) / sizeof(half)) / (kBlockRowTiles * kWmmaM);
     for(int i=0; i<kBlockColTiles*kWmmaN / kComputeRowsPerIter; ++i){
-        int row = i * kComputeRowsPerIter + (threadIdx.x >> 6);
-        int col = (threadIdx.x & 63) * 2;
+        int row = i * kComputeRowsPerIter + row_offset;
         int idx = row * (kBlockRowTiles * kWmmaM + kAccSkew) + col;
         half2 value = ((half2*)(acc_shared + idx))[0];
         if(value.x<half(0)){
@@ -2170,7 +2178,7 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
         const int cmp_shared_stride = (threadIdx.x & 63) * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) + offset;
         __syncthreads();
         for(int i=0; i<(kGemmK6BlockRowTiles * kWmmaM / kNumRowTiles / kVecSize); ++i){
-            int idx = cmp_shared_stride + (i << 1);
+            int idx = cmp_shared_stride + (i * 2);
             half2 value = ((half2*)(acc_shared + idx))[0];
             half2 short_cut = ((half2*)(short_cut_add_shared + idx))[0];
             value += short_cut;
@@ -2245,9 +2253,9 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
         float sum_x = shared_attn_layer_norm_sum[threadIdx.x];
         float sum_x_2 = shared_attn_layer_norm_variance[threadIdx.x];
         half mean = __float2half(sum_x / kHiddenDim);
-        half standard_deviation = __float2half(sqrt((sum_x_2 - (sum_x * sum_x)/kHiddenDim) / kHiddenDim + __half2float(eps)));
+        half standard_deviation = __float2half(sqrt((sum_x_2 - (sum_x * sum_x) / kHiddenDim) / kHiddenDim + __half2float(eps)));
         ((half*)shared_attn_layer_norm_sum + threadIdx.x)[0] = mean;
-        ((half*)shared_attn_layer_norm_variance + threadIdx.x)[0] = standard_deviation;
+        ((half*)shared_attn_layer_norm_variance + threadIdx.x)[0] = half(1.0) / standard_deviation;
     }
     __syncthreads();
     // Compute short cut add and layer norm variance
@@ -2257,15 +2265,16 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
     int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
     half2 gama_h2(h_gama, h_gama);
     half2 beta_h2(h_beta, h_beta);
+    const int row_offset = (threadIdx.x >> 5);
     for(int i=0; i<(kGemmK6BlockColTiles * kWmmaN / kComputeRowsPerIter); ++i){
-        int row = i * kComputeRowsPerIter + (threadIdx.x >> 5);
+        int row = i * kComputeRowsPerIter + row_offset;
         int idx = row * (kGemmK6BlockColTiles * kWmmaM + kAccSkew) + col;
         half2 value = ((half2*)(acc_shared + idx))[0];
         half mean = ((half*)shared_attn_layer_norm_sum)[row];
         half standard_deviation = ((half*)shared_attn_layer_norm_variance)[row];
         half2 mean_h2(mean, mean);
         half2 standard_deviation_h2(standard_deviation, standard_deviation);
-        half2 norm = ((value - mean_h2) / standard_deviation_h2) * gama_h2 + beta_h2;
+        half2 norm = ((value - mean_h2) * standard_deviation_h2) * gama_h2 + beta_h2;
         ((half2*)(acc_shared + idx))[0] = norm;
     }
     __syncthreads();
@@ -2289,7 +2298,6 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
             *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
     }
     }
-    // grid.sync();
-    
+    grid.sync();
   profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
 }

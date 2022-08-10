@@ -1,7 +1,16 @@
 #include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char** argv)
 {
+
+  char* output=(char*)malloc(1024*1024*128);
+  sprintf(output, "%s", "same");
+  sprintf(output+4, "%f", 12.239f);
+  printf("%s\n", output);
+
 int b[2] = {3, 5};
 int a[3] = {1,10,100};
 int* p = a;

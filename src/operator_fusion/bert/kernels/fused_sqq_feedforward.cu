@@ -848,9 +848,9 @@ __syncthreads();
         float sum_x = shared_attn_layer_norm_sum[threadIdx.x];
         float sum_x_2 = shared_attn_layer_norm_variance[threadIdx.x];
         half mean = __float2half(sum_x / kHiddenDim);
-        half standard_deviation = __float2half(sqrt((sum_x_2 - (sum_x * sum_x)/kHiddenDim) / kHiddenDim + __half2float(eps)));
+        half standard_deviation = __float2half(sqrt((sum_x_2 - (sum_x * sum_x) / kHiddenDim) / kHiddenDim + __half2float(eps)));
         ((half*)shared_attn_layer_norm_sum + threadIdx.x)[0] = mean;
-        ((half*)shared_attn_layer_norm_variance + threadIdx.x)[0] = standard_deviation;
+        ((half*)shared_attn_layer_norm_variance + threadIdx.x)[0] = half(1.0) / standard_deviation;
     }
     __syncthreads();
     // Compute short cut add and layer norm variance
@@ -860,15 +860,16 @@ __syncthreads();
     int col = (threadIdx.x & 31) * (sizeof(half2)/sizeof(half));
     half2 gama_h2(h_gama, h_gama);
     half2 beta_h2(h_beta, h_beta);
+    const int row_offset = (threadIdx.x >> 5);
     for(int i=0; i<(kGemmK6BlockColTiles * kWmmaN / kComputeRowsPerIter); ++i){
-        int row = i * kComputeRowsPerIter + (threadIdx.x >> 5);
+        int row = i * kComputeRowsPerIter + row_offset;
         int idx = row * (kGemmK6BlockColTiles * kWmmaM + kAccSkew) + col;
         half2 value = ((half2*)(acc_shared + idx))[0];
         half mean = ((half*)shared_attn_layer_norm_sum)[row];
         half standard_deviation = ((half*)shared_attn_layer_norm_variance)[row];
         half2 mean_h2(mean, mean);
         half2 standard_deviation_h2(standard_deviation, standard_deviation);
-        half2 norm = ((value - mean_h2) / standard_deviation_h2) * gama_h2 + beta_h2;
+        half2 norm = ((value - mean_h2) * standard_deviation_h2) * gama_h2 + beta_h2;
         ((half2*)(acc_shared + idx))[0] = norm;
     }
     __syncthreads();
@@ -892,4 +893,6 @@ __syncthreads();
             *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
     }
     }
+    grid.sync();
+    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
 }

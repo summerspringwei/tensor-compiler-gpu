@@ -31,7 +31,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   // CUfunction cu_fused_sqq_bert;
   // checkCuda(cudaGetFuncBySymbol(&cu_fused_sqq_bert,
   //                                  (const void *)fused_sqq_bert));
-  int compare_level = 2;
+  int compare_level = 0;
   const int d_model = num_heads * hidden_size;
   // Load weight from model file
   auto load_file_query = std::vector<float>(d_model*d_model);
@@ -203,9 +203,10 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
     (void *)&(ptr_t_feed_forward_fc2_output),
     (void *)&(ptr_t_feed_forward_fc2_short_cut_output),
   };
-  const size_t fused_bert_shared_mem = 128*1024;
+  const size_t fused_bert_shared_mem = 108*1024;
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert_pipelined, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
+  checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert_pipelined_v2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   
   // 1. fused qkv matmul
   void* fused_attn_kernel_args[] = {(void *)&(ptr_weight_qkv), (void *)&(ptr_src), 
@@ -297,6 +298,10 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
             (kChunkK * kWmmaK + kInputSkew))) *
       sizeof(half);
   printf("gemm_k5 shared memory %d, blocks %d\n", gemm_k5_shared_mem, gemm_k5_blocks);
+  checkCuda(cudaFuncSetAttribute((const void *)gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
+                                       kHiddenSize * kHiddenDim, kSeqLength,
+                                       kHiddenDim, 1>, 
+                                  cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   // 6.
   void* fused_feed_forward_fc2_kernel_args[] = {
     (void*)&(ptr_feed_forward_fc2_weight), (void*)&(ptr_feed_forward_fc1_output), (void*)&(ptr_feed_forward_fc2_output)
@@ -338,54 +343,85 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   checkCuda(cudaFuncSetAttribute((const void *)fused_sqq_feedforward, 
                                   cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_feed_forward_shared_mem_size));
   
+  // 8. For debug single kernel performance
+  checkCuda(cudaFuncSetAttribute((const void *)debug_feed_forward_fc1, 
+                                  cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, 120*1024));
+  checkCuda(cudaFuncSetAttribute((const void *)debug_fused_sqq_bert_pipelined, 
+                                  cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
+                                  
+
   auto device_func = [&](int func_id){
     switch (func_id)
     {
     case 0:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_bert", [&]{
-        checkCuda(cudaLaunchCooperativeKernel((void*)fused_sqq_bert, dim3(108, 1, 1), dim3(128, 1, 1), fused_bert_kernel_args, fused_bert_shared_mem));
+        checkCuda(cudaLaunchCooperativeKernel((void*)fused_sqq_bert, 
+        dim3(108, 1, 1), dim3(128, 1, 1), fused_bert_kernel_args, fused_bert_shared_mem));
       });
       break;
     case 1:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_qkv", [&]{
-        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_add_qkv_bias, dim3(24*4, 1, 1), dim3(128, 1, 1), fused_attn_kernel_args, gemm_k1_shared_mem));
+        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_add_qkv_bias, 
+        dim3(24*4, 1, 1), dim3(128, 1, 1), fused_attn_kernel_args, gemm_k1_shared_mem));
       });
       break;
     case 2:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(query_key_output.type(), "bert_attn_query_key", [&]{
-        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_k2, dim3(3*3*12, 1, 1), dim3(128, 1, 1), fused_attn_query_key_kernel_args, gemm_k2_shared_mem));
+        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_k2, 
+        dim3(3*3*12, 1, 1), dim3(128, 1, 1), fused_attn_query_key_kernel_args, gemm_k2_shared_mem));
       });
       break;
     case 3:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_value", [&]{
-        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_reshape, dim3(72, 1, 1), dim3(128, 1, 1), fused_attn_value_kernel_args, gemm_k3_shared_mem));
+        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_reshape, 
+        dim3(72, 1, 1), dim3(128, 1, 1), fused_attn_value_kernel_args, gemm_k3_shared_mem));
       });
       break;
     case 4:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_attn_fc", [&]{
-        checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_three_stage<kGemmK4WarpRowTiles, kGemmK4WarpColTiles,
+        checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_three_stage<kGemmK4WarpRowTiles, kGemmK4WarpColTiles, 
                         d_model, max_seq_length, d_model, 1>, 
                         dim3(gemm_k4_blocks, 1, 1), dim3(128, 1, 1), fused_attn_fc_kernel_args, gemm_k4_shared_mem));
       });
       break;
     case 5:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_feed_forward_fc1", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
+                                       kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>, 
+                                      dim3(96,1,1), dim3(128, 1,1), fused_feed_forward_fc1_kernel_args, fused_bert_shared_mem));
+      });
+      break;
+    case 6:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_feed_forward_fc2", [&]{
         checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_k6, 
                                       dim3(gemm_k6_blocks,1,1), dim3(128, 1,1), fused_feed_forward_fc2_kernel_args, gemm_k6_shared_mem));
       });
       break;
-    case 6:
+    case 7:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_fused_feed_forward", [&]{
         checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_feedforward, 
                                       dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_feed_forward_shared_mem_size));
       });
       break;
-    case 7:
+    case 8:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_fused_feed_forward", [&]{
-        checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_bert_pipelined, 
+        checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_bert_pipelined_v2, 
                                       dim3(108,1,1), dim3(128, 1,1), fused_bert_kernel_args, fused_bert_shared_mem));
       });
       break;
+    case 9:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "debug_feed_forward_fc1", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)debug_feed_forward_fc1, 
+                                      dim3(96,1,1), dim3(128, 1,1), fused_feed_forward_fc1_kernel_args, fused_bert_shared_mem));
+      });
+      break;
+    case 10:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "debug_fused_sqq_bert_pipelined", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)debug_fused_sqq_bert_pipelined, 
+                                      dim3(108,1,1), dim3(128, 1,1), fused_bert_kernel_args, fused_bert_shared_mem));
+      });
+      break;
+    
     default:
       break;
     }
@@ -397,21 +433,21 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   
   // Check result
   auto value = torch::reshape(torch::split(output_qkv, 1, 0)[2], {num_heads, max_seq_length, hidden_size});
-  my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_query_key_output_sum, query_key_softmax_sum, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_query_key_output_sum, query_key_softmax_sum, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_attn_fc_short_cut_add, attn_fc_output, 1.0/16, 1.0/1024, 2);
   auto attn_fc_layer_norm_x_2 = torch::slice(query_key_softmax_sum, 0, 0, 1);
   // my_compare(t_attn_fc_layer_norm_x, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
   // my_compare(t_attn_fc_layer_norm_x_2, layer_norm_variance, 1.0/16, 1.0/1024, 2);
   // my_compare(t_attn_fc_layer_norm_output, attn_fc_output, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, 2);
+  my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_feed_forward_fc2_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_feed_forward_fc2_short_cut_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
-  my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, feed_forward_layer_norm_variance, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_feed_forward_fc2_layer_norm_sum_x, feed_forward_layer_norm_sum, 1.0/16, 1.0/1024, compare_level);
-  my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, feed_forward_layer_norm_variance, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_feed_forward_fc2_layer_norm_sum_x, feed_forward_layer_norm_sum, 1.0/16, 1.0/1024, compare_level);
+  // my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, compare_level);
   printf("Comparing results finshed\n");
 
   // Benchmark
@@ -420,7 +456,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   checkCuda(cudaEventCreate(&stopEvent));
 
   // Warm up
-  for(int i=0; i<100; ++i){
+  for(int i=0; i<1; ++i){
     device_func(func_id);
   }
   
