@@ -42,7 +42,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   unsigned int c = 0;
   const int warpIdx = threadIdx.x >> 5;
   
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   
   // Begin of fused QKV matmul
   if(blockIdx.x < 96){
@@ -482,7 +482,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
  
   grid.sync();
   
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   // Begin of Query-Key bmm
   if(blockIdx.x < 108){
     const half* __restrict__ query = qkv_output;
@@ -666,7 +666,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   }
   grid.sync();
   
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   if(blockIdx.x<108){
     enum {
         kBlockRowTiles = kBlockRowWarps * kGemmK2WarpRowTiles,
@@ -737,7 +737,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   /* ------------------------------------------------------------- */
   grid.sync();
   
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   
   // Begin of attn_value
   if(blockIdx.x < 72){
@@ -1043,7 +1043,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   }// End of attn_value 
     grid.sync();
     
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   //Begin of attn_fc
   if(blockIdx.x < 72){
     // kGemmK4WarpRowTiles, kGemmK4WarpColTiles, d_model, max_seq_length, d_model, 1
@@ -1360,7 +1360,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
     __syncthreads();
     pipe.consumer_release();
     
-    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
     float sum_x = 0, sum_x2=0;
     const int kVecSize = sizeof(half2) / sizeof(half);
@@ -1385,7 +1385,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   }
   grid.sync();
   
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   if(blockIdx.x < 72){
     const int kWarpRowTiles=kGemmK4WarpRowTiles;
     const int kWarpColTiles=kGemmK4WarpColTiles;
@@ -1480,11 +1480,12 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
     }
   }// End of attn_fc+short_cut_add
     grid.sync();
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Begin of feed_forward_fc1 + relu
-    cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
-    const int fc1_shared_offset = 3*64*72 / sizeof(half);
+    
+    const int fc1_shared_offset = 3*64*72;
     if(blockIdx.x < 96){
+    cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
     const int kWarpRowTiles=kGemmK5WarpRowTiles;
     const int kWarpColTiles=kGemmK5WarpColTiles;
     const int M=kHiddenSize * kHiddenDim;
@@ -1753,9 +1754,10 @@ __syncthreads();
         }
         stage = (stage + 1) % kStage;
     }
-
+__syncthreads();
 // Load feed_forward_fc2 Prologue
 if(blockIdx.x < 72){
+// {
     // matrix_a_shared: 64*(64+8)*3, matrix_b_shared: 64*(64+8)*3
     // Each block occupies 64*(64+8)*6=27.0KB shared memory
     half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
@@ -1826,7 +1828,6 @@ if(blockIdx.x < 72){
         pipe.producer_commit();
     }
 }// End of feed_forward_fc2 Load
-__syncthreads();
 
 
 #pragma unroll
@@ -1884,13 +1885,20 @@ __syncthreads();
         *reinterpret_cast<float4 *>(c_dst_base + i * c_dst_stride) =
             *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
     }
+    pipe.consumer_wait();
+    __syncthreads();
+    pipe.consumer_release();
+    pipe.consumer_wait();
+    __syncthreads();
+    pipe.consumer_release();
     } // End of feed_forward_fc1 + relu
 
     grid.sync();
     
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Begin of feed_forward_fc2 + shor_cuda  Add
     if(blockIdx.x < 72){
+    cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
     // matrix_a_shared: 64*(64+8)*3, matrix_b_shared: 64*(64+8)*3
     // Each block occupies 64*(64+8)*6=27.0KB shared memory
     half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
@@ -1978,10 +1986,6 @@ __syncthreads();
     const int b_src_stride = kLoadBColsPerIter * kHiddenDim * kHiddenSize;
 
     // Prologue
-    // Wait for load fc2 weight in fc1
-    pipe.consumer_wait();
-    __syncthreads();
-    pipe.consumer_release();
 #pragma unroll
     for (int s = 0; s < kStage - 1; ++s) {
         pipe.producer_acquire();
@@ -2007,9 +2011,7 @@ __syncthreads();
         }
         pipe.producer_commit();
     }
-    pipe.consumer_wait();
-    __syncthreads();
-    pipe.consumer_release();
+    
     // Soft pipeline
 #pragma unroll
     for (; k_loop <
@@ -2216,7 +2218,7 @@ __syncthreads();
     __syncthreads();
     pipe.consumer_release();
     
-    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
         float sum_x = 0, sum_x2=0;
         const int kVecSize = sizeof(half2) / sizeof(half);
@@ -2241,7 +2243,7 @@ __syncthreads();
     }
     grid.sync();
     
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     if(blockIdx.x < 72){
     enum {
         kThreads = kGemmK6BlockSliceKTiles * kWarpSize,
@@ -2345,6 +2347,6 @@ __syncthreads();
             *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
     }
     }
-    grid.sync();
-    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    // grid.sync();
+    //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
 }

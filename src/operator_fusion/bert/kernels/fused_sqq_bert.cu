@@ -2105,41 +2105,6 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
                 nvcuda::wmma::mem_col_major);
         }
     }
-
-    // Load Short cut
-    const int N = kSeqLength;
-    const int M = kHiddenDim;
-    half* short_cut_add_shared = acc_shared + 
-        ((kGemmK6BlockColTiles * kWmmaN) * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew));
-    const int batch_stride =
-        (N / kGemmK6BlockColTiles / kWmmaN) * (M / kGemmK6BlockRowTiles / kWmmaM);
-    const int batched_id = blockIdx.x / batch_stride;
-
-    uint64_t attn_fc_offset = batched_id * N * M +
-                       row_block_id * kGemmK6BlockRowTiles * kWmmaM +
-                       (col_block_id * kGemmK6BlockColTiles * kWmmaN +
-                        threadIdx.x / kStoreCLanesPerRow) *
-                           M +
-                       (threadIdx.x & (kStoreCLanesPerRow - 1)) *
-                           sizeof(float4) / sizeof(half);
-    uint64_t shared_attn_fc_offset = threadIdx.x / kStoreCLanesPerRow *
-                           (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) +
-                       (threadIdx.x & (kStoreCLanesPerRow - 1)) *
-                           sizeof(float4) / sizeof(half);
-    const int c_dst_stride = kStoreCColsPerIter * M;
-    const int c_src_stride =
-        kStoreCColsPerIter * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew);
-    
-    half* src_base = attn_fc_output + attn_fc_offset;
-    half* short_cut_add_shared_base = short_cut_add_shared + shared_attn_fc_offset;
-    // Load src to short_cut_add_shared
-    pipe.producer_acquire();
-    for (int i = 0; i < kGemmK6BlockColTiles * kWmmaN / kStoreCColsPerIter; ++i) {
-        cuda::memcpy_async((float4*)(short_cut_add_shared_base + i * c_src_stride),
-                            (float4*)(src_base + i * c_dst_stride), shape, pipe);
-    }
-    pipe.producer_commit();
-
     __syncthreads();
 
     const int c_reduce_stride =
@@ -2163,7 +2128,39 @@ __global__ void fused_sqq_bert(const half *__restrict__ qkv_weight,
         }
     }
     __syncthreads();
-    
+       // Load Short cut
+    const int N = kSeqLength;
+    const int M = kHiddenDim;
+    half* short_cut_add_shared = acc_shared + 
+        ((kGemmK6BlockColTiles * kWmmaN) * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew));
+    const int batch_stride =
+        (N / kGemmK6BlockColTiles / kWmmaN) * (M / kGemmK6BlockRowTiles / kWmmaM);
+    const int batched_id = blockIdx.x / batch_stride;
+
+    uint64_t attn_fc_offset = batched_id * N * M +
+                       row_block_id * kGemmK6BlockRowTiles * kWmmaM +
+                       (col_block_id * kGemmK6BlockColTiles * kWmmaN +
+                        threadIdx.x / kStoreCLanesPerRow) *
+                           M +
+                       (threadIdx.x & (kStoreCLanesPerRow - 1)) *
+                           sizeof(float4) / sizeof(half);
+    uint64_t shared_attn_fc_offset = threadIdx.x / kStoreCLanesPerRow *
+                           (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) +
+                       (threadIdx.x & (kStoreCLanesPerRow - 1)) *
+                           sizeof(float4) / sizeof(half);
+    const int c_dst_stride = kStoreCColsPerIter * M;
+    const int c_src_stride =
+        kStoreCColsPerIter * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew);
+    half* src_base = attn_fc_output + attn_fc_offset;
+    half* short_cut_add_shared_base = short_cut_add_shared + shared_attn_fc_offset;
+    // Load src to short_cut_add_shared
+    pipe.producer_acquire();
+    for (int i = 0; i < kGemmK6BlockColTiles * kWmmaN / kStoreCColsPerIter; ++i) {
+        cuda::memcpy_async((float4*)(short_cut_add_shared_base + i * c_src_stride),
+                            (float4*)(src_base + i * c_dst_stride), shape, pipe);
+    }
+    pipe.producer_commit();
+
     // Wait for short_cut
     pipe.consumer_wait();
     __syncthreads();

@@ -28,10 +28,7 @@ using namespace fuselage::experiments::networks::bert;
 
 template<int64_t batch_size, int64_t num_heads, int64_t max_seq_length, int64_t hidden_size, int64_t d_intermedia>
 float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
-  // CUfunction cu_fused_sqq_bert;
-  // checkCuda(cudaGetFuncBySymbol(&cu_fused_sqq_bert,
-  //                                  (const void *)fused_sqq_bert));
-  int compare_level = 0;
+  int compare_level = 1;
   const int d_model = num_heads * hidden_size;
   // Load weight from model file
   auto load_file_query = std::vector<float>(d_model*d_model);
@@ -207,6 +204,8 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert_pipelined, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert_pipelined_v2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
+  checkCuda(cudaFuncSetAttribute((void*)fused_sqq_feedforward_pipelined, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
+  checkCuda(cudaFuncSetAttribute((void*)fused_sqq_feedforward_pipelined_v2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   
   // 1. fused qkv matmul
   void* fused_attn_kernel_args[] = {(void *)&(ptr_weight_qkv), (void *)&(ptr_src), 
@@ -400,25 +399,37 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
     case 7:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_fused_feed_forward", [&]{
         checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_feedforward, 
-                                      dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_feed_forward_shared_mem_size));
+                                      dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_bert_shared_mem));
       });
       break;
     case 8:
-      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_fused_feed_forward", [&]{
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_fused_feed_forward_pipelined", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_feedforward_pipelined, 
+                                      dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_bert_shared_mem));
+      });
+      break;
+    case 9:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_sqq_bert_pipelined_v2", [&]{
         checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_bert_pipelined_v2, 
                                       dim3(108,1,1), dim3(128, 1,1), fused_bert_kernel_args, fused_bert_shared_mem));
       });
       break;
-    case 9:
+    case 10:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "debug_feed_forward_fc1", [&]{
         checkCuda(cudaLaunchCooperativeKernel((const void *)debug_feed_forward_fc1, 
                                       dim3(96,1,1), dim3(128, 1,1), fused_feed_forward_fc1_kernel_args, fused_bert_shared_mem));
       });
       break;
-    case 10:
+    case 11:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "debug_fused_sqq_bert_pipelined", [&]{
         checkCuda(cudaLaunchCooperativeKernel((const void *)debug_fused_sqq_bert_pipelined, 
                                       dim3(108,1,1), dim3(128, 1,1), fused_bert_kernel_args, fused_bert_shared_mem));
+      });
+      break;
+    case 12:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "fused_sqq_feedforward_pipelined_v2", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_feedforward_pipelined_v2, 
+                                      dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_bert_shared_mem));
       });
       break;
     
@@ -445,9 +456,9 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_feed_forward_fc2_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_feed_forward_fc2_short_cut_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, feed_forward_layer_norm_variance, 1.0/16, 1.0/1024, compare_level);
-  // my_compare(t_feed_forward_fc2_layer_norm_sum_x, feed_forward_layer_norm_sum, 1.0/16, 1.0/1024, compare_level);
-  // my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_feed_forward_fc2_layer_norm_sum_x_2, feed_forward_layer_norm_variance, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_feed_forward_fc2_layer_norm_sum_x, feed_forward_layer_norm_sum, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_feed_forward_fc2_layer_norm, feed_forward_fc2_output, 1.0/16, 1.0/1024, compare_level);
   printf("Comparing results finshed\n");
 
   // Benchmark
