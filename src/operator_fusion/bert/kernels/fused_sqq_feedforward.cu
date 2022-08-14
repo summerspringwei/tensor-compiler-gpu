@@ -1743,7 +1743,7 @@ __global__ void fused_sqq_feedforward_pipelined_v2(
     unsigned int c = 0;
     const int warpIdx = threadIdx.x >> 5;
     
-    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    profile_grid_clock[clock_idx * 96 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     const int fc1_shared_offset = 3*64*72;
     if(blockIdx.x < 96){
     cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
@@ -2157,7 +2157,7 @@ __syncthreads();
     } // End of feed_forward_fc1 + relu
     grid.sync();
     
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 96 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Begin of feed_forward_fc2 + shor_cuda  Add
     if(blockIdx.x < 72){
         cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
@@ -2481,7 +2481,7 @@ __syncthreads();
     __syncthreads();
     pipe.consumer_release();
     
-    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    profile_grid_clock[clock_idx * 96 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
         float sum_x = 0, sum_x2=0;
         const int kVecSize = sizeof(half2) / sizeof(half);
@@ -2506,7 +2506,7 @@ __syncthreads();
     }
     grid.sync();
     
-  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 96 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     if(blockIdx.x < 72){
     enum {
         kThreads = kGemmK6BlockSliceKTiles * kWarpSize,
@@ -2610,5 +2610,6 @@ __syncthreads();
             *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
     }
     }
-    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    grid.sync();
+    profile_grid_clock[clock_idx * 96 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
 }

@@ -135,8 +135,11 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   auto attn_layer_norm_variance = torch::zeros({batch_size*max_seq_length, }, options_fp32);
   auto feed_forward_layer_norm_sum = torch::zeros({batch_size*max_seq_length, }, options_fp32);
   auto feed_forward_layer_norm_variance = torch::zeros({batch_size*max_seq_length, }, options_fp32);
-  const int kProfileStages = 12, max_blocks=108, max_num_warp=4;
+  const int kProfileStages = 13, max_blocks=108, max_num_warp=4;
   auto profile_clock = torch::zeros({kProfileStages, max_blocks, max_num_warp}, options_int64);
+  const int kAttnProfileStages = 9, kAttnBlocks=108, kFeedForwardProfileStages = 5, kFeedForwardBlocks = 96;
+  auto attn_profile_clock = torch::zeros({kAttnProfileStages, kAttnBlocks, max_num_warp}, options_int64);
+  auto feed_forward_profile_clock = torch::zeros({kFeedForwardProfileStages, kFeedForwardBlocks, max_num_warp}, options_int64);
   
 
   at::Half* ptr_src = src.data<at::Half>();
@@ -160,6 +163,10 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   float* ptr_feed_forward_layer_norm_sum = feed_forward_layer_norm_sum.data<float>();
   float* ptr_feed_forward_layer_norm_variance = feed_forward_layer_norm_variance.data<float>();
   int64_t* ptr_profile_clock = profile_clock.data<int64_t>();
+  int64_t* ptr_attn_profile_clock = attn_profile_clock.data<int64_t>();
+  int64_t* ptr_feed_forward_profile_clock = feed_forward_profile_clock.data<int64_t>();
+
+
   // Pointers from torch
   at::Half* ptr_t_attn_fc_layer_norm_output = t_attn_fc_layer_norm_output.data<at::Half>();
   at::Half* ptr_t_feed_forward_fc2_output = t_feed_forward_fc2_output.data<at::Half>();
@@ -200,11 +207,28 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
     (void *)&(ptr_t_feed_forward_fc2_output),
     (void *)&(ptr_t_feed_forward_fc2_short_cut_output),
   };
+  void * fused_bert_attn_kernel_args[] = {
+    (void *)&(ptr_weight_qkv), 
+    (void *)&(ptr_src), 
+    (void *)&(ptr_bias_qkv), 
+    (void *)&(ptr_output_qkv), 
+    (void *)&(ptr_query_key_output),
+    (void *)&(ptr_t_attn_mask),
+    (void *)&(ptr_query_key_softmax_sum),
+    (void *)&(ptr_attn_value_output),
+    (void *)&(ptr_attn_fc_weight),
+    (void *)&(ptr_attn_fc_output),
+    (void *)&(ptr_attn_layer_norm_sum),
+    (void *)&(ptr_attn_layer_norm_variance),
+    (void *)&(eps), (void *)&(gama), (void *)&(beta),
+    (void *)&(ptr_attn_profile_clock),
+  };
   const size_t fused_bert_shared_mem = 108*1024;
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert_pipelined, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert_pipelined_v2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_feedforward_pipelined, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
+  checkCuda(cudaFuncSetAttribute((void*)fused_sqq_bert_attn, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   checkCuda(cudaFuncSetAttribute((void*)fused_sqq_feedforward_pipelined_v2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, fused_bert_shared_mem));
   
   // 1. fused qkv matmul
@@ -322,6 +346,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   at::Half* ptr_tmp_feed_forward_fc1_output = tmp_feed_forward_fc1_output.data<at::Half>();
   auto tmp_feed_forward_fc2_weight = torch::ones({d_intermedia, d_model}, options_fp16);
   at::Half* ptr_tmp_feed_forward_fc2_weight = tmp_feed_forward_fc2_weight.data<at::Half>();
+  
   void* fused_feedforward_kernel_args[] = {
     // (void *)&(ptr_attn_fc_output),
     (void *)&(ptr_t_attn_fc_layer_norm_output),
@@ -334,7 +359,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
     (void *)&(ptr_feed_forward_fc2_output),
     (void *)&(ptr_feed_forward_layer_norm_sum),
     (void *)&(ptr_feed_forward_layer_norm_variance),
-    (void *)&(ptr_profile_clock),
+    (void *)&(ptr_feed_forward_profile_clock),
     (void *)&(ptr_t_feed_forward_fc2_output)
   };
   const size_t fused_feed_forward_shared_mem_size = gemm_k5_shared_mem + kStage * (kGemmK6BlockSliceKTiles * kWmmaK *
@@ -432,7 +457,14 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
                                       dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_bert_shared_mem));
       });
       break;
-    
+    case 13:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "attn_feed_forward", [&]{
+        checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_bert_attn, 
+                                      dim3(108,1,1), dim3(128, 1,1), fused_bert_attn_kernel_args, fused_bert_shared_mem));
+        checkCuda(cudaLaunchCooperativeKernel((const void *)fused_sqq_feedforward_pipelined_v2, 
+                                      dim3(gemm_k5_blocks,1,1), dim3(128, 1,1), fused_feedforward_kernel_args, fused_bert_shared_mem));
+      });
+      break;
     default:
       break;
     }
@@ -452,7 +484,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   auto attn_fc_layer_norm_x_2 = torch::slice(query_key_softmax_sum, 0, 0, 1);
   // my_compare(t_attn_fc_layer_norm_x, attn_fc_layer_norm_x_2, 1.0/16, 1.0/1024, 2);
   // my_compare(t_attn_fc_layer_norm_x_2, layer_norm_variance, 1.0/16, 1.0/1024, 2);
-  // my_compare(t_attn_fc_layer_norm_output, attn_fc_output, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_attn_fc_layer_norm_output, attn_fc_output, 1.0/16, 1.0/1024, compare_level);
   my_compare(t_feed_forward_fc1_activation_output, feed_forward_fc1_output, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_feed_forward_fc2_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
   // my_compare(t_feed_forward_fc2_short_cut_output, feed_forward_fc2_output, 1.0/16, 1.0/1024, 2);
@@ -503,6 +535,8 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   }
   
   torch::save(profile_clock, "profile_clock.pt");
+  torch::save(attn_profile_clock, "attn_profile_clock.pt");
+  torch::save(feed_forward_profile_clock, "feed_forward_profile_clock.pt");
 
   checkCuda(cudaEventDestroy(startEvent));
   checkCuda(cudaEventDestroy(stopEvent));

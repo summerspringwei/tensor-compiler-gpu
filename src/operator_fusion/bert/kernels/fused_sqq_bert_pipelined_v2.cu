@@ -42,7 +42,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   unsigned int c = 0;
   const int warpIdx = threadIdx.x >> 5;
   
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   
   // Begin of fused QKV matmul
   if(blockIdx.x < 96){
@@ -482,7 +482,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
  
   grid.sync();
   
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   // Begin of Query-Key bmm
   if(blockIdx.x < 108){
     const half* __restrict__ query = qkv_output;
@@ -635,6 +635,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
     }
 
     __syncthreads();
+    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Each acc_shared contains (128, 128) elements
     // fused sqrt(hidden_size) + Softmax_reduce_sum
     // Now all values are in shared memory, need to find the layout in shared memory
@@ -666,7 +667,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   }
   grid.sync();
   
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   if(blockIdx.x<108){
     enum {
         kBlockRowTiles = kBlockRowWarps * kGemmK2WarpRowTiles,
@@ -737,7 +738,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   /* ------------------------------------------------------------- */
   grid.sync();
   
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   
   // Begin of attn_value
   if(blockIdx.x < 72){
@@ -1043,7 +1044,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   }// End of attn_value 
     grid.sync();
     
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   //Begin of attn_fc
   if(blockIdx.x < 72){
     // kGemmK4WarpRowTiles, kGemmK4WarpColTiles, d_model, max_seq_length, d_model, 1
@@ -1360,7 +1361,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
     __syncthreads();
     pipe.consumer_release();
     
-    //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
     float sum_x = 0, sum_x2=0;
     const int kVecSize = sizeof(half2) / sizeof(half);
@@ -1385,7 +1386,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
   }
   grid.sync();
   
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
   if(blockIdx.x < 72){
     const int kWarpRowTiles=kGemmK4WarpRowTiles;
     const int kWarpColTiles=kGemmK4WarpColTiles;
@@ -1480,7 +1481,7 @@ __global__ void fused_sqq_bert_pipelined_v2(const half *__restrict__ qkv_weight,
     }
   }// End of attn_fc+short_cut_add
     grid.sync();
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Begin of feed_forward_fc1 + relu
     
     const int fc1_shared_offset = 3*64*72;
@@ -1895,7 +1896,7 @@ if(blockIdx.x < 72){
 
     grid.sync();
     
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Begin of feed_forward_fc2 + shor_cuda  Add
     if(blockIdx.x < 72){
     cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
@@ -2218,7 +2219,7 @@ if(blockIdx.x < 72){
     __syncthreads();
     pipe.consumer_release();
     
-    //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     // Compute short_cut_add, shape:(64, 64+8), we have 128 threads
         float sum_x = 0, sum_x2=0;
         const int kVecSize = sizeof(half2) / sizeof(half);
@@ -2243,7 +2244,7 @@ if(blockIdx.x < 72){
     }
     grid.sync();
     
-  //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+  profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
     if(blockIdx.x < 72){
     enum {
         kThreads = kGemmK6BlockSliceKTiles * kWarpSize,
@@ -2348,5 +2349,5 @@ if(blockIdx.x < 72){
     }
     }
     // grid.sync();
-    //profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
+    profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
 }

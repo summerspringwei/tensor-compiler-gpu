@@ -1,5 +1,6 @@
-import lstm_binding
+
 import torch
+import lstm_binding
 import numpy as np
 import math
 
