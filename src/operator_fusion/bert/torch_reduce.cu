@@ -8,7 +8,7 @@
 #include "torch/all.h"
 
 #include "../../cuda_utils.h"
-#include "torch_utils.h"
+#include "../torch_utils.h"
 
 
 // __inline__ __device__ float warpReduceSum(float val) {

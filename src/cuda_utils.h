@@ -9,11 +9,11 @@
 // Convenience function for checking CUDA runtime API results
 // can be wrapped around any runtime API call. No-op in release builds.
 inline
-cudaError_t checkCuda(cudaError_t result)
+cudaError_t checkCuda(cudaError_t result, int line=0)
 {
 // #if defined(DEBUG) || defined(_DEBUG)
   if (result != cudaSuccess) {
-    fprintf(stderr, "CUDA Runtime Error: %s\n", cudaGetErrorString(result));
+    fprintf(stderr, "CUDA Runtime Error: %s line: %d\n", cudaGetErrorString(result), line);
     assert(result == cudaSuccess);
   }
 // #endif

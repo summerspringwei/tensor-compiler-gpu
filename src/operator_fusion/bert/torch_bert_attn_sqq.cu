@@ -20,7 +20,7 @@
 
 #include "../../utils.h"
 #include "../../cuda_utils.h"
-#include "torch_utils.h"
+#include "../torch_utils.h"
 
 using namespace fuselage::experiments::networks::bert;
 /* This bert is based on the implementation of Qianqi Sun*/
