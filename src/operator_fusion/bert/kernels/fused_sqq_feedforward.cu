@@ -1737,7 +1737,9 @@ __global__ void fused_sqq_feedforward_pipelined_v2(
                                 // Pointers from torch
                                 half* __restrict__ t_feed_forward_fc2_output
                                 ){
+    // Pass by launch kernel
     extern __shared__ half all_shared_mem[];
+    // All block
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
     int clock_idx = 0;
     unsigned int c = 0;

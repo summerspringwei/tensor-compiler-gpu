@@ -19,7 +19,7 @@ sudo -E echo $LD_LIBRARY_PATH
 #   LD_LIBRARY_PATH=$CUDA_HOME/lib64:$CUDA_HOME/targets/x86_64-linux/lib:/home/xiachunwei/Software/pytf2.4/lib/python3.7/site-packages/torch/lib:$LD_LIBRARY_PATH \
 #   echo ${LD_LIBRARY_PATH} && /usr/local/cuda-11.7/bin/ncu --set full -o lstm_ours -f --target-processes all  /home/xiachunwei/Software/pytf2.4/bin/python3 test_lstm.py
 
-sudo -E /usr/local/cuda-11.7/bin/ncu -k lstm_reuse_shared_memory_v9 --set full -o lstm_ours -f --target-processes all /home/xiachunwei/Software/pytf2.4/bin/python3 test_lstm.py
+sudo -E /usr/local/cuda-11.7/bin/ncu -k lstm_reuse_shared_memory_v9 --set full -f --target-processes all -o lstm_ours  /home/xiachunwei/Software/pytf2.4/bin/python3 test_lstm.py
 
 
 sudo /usr/local/cuda/bin/ncu --metrics regex:sm__inst_executed* -k fused_sqq_bert_attn -o fused_sqq_bert_attn_opcodes -f --target-processes all ./torch_bert_attn_sqq 1 1 13
