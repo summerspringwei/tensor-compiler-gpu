@@ -85,17 +85,17 @@ CuLstmData create_lstm_data(int batch, int num_layer, unsigned long num_hidden, 
     std::vector<unsigned long> input_shape = {num_hidden};
     std::vector<unsigned long> weight_shape = {num_hidden * num_hidden};
     // Load host data from npy file
-    npy::LoadArrayFromNumpy(std::string("data/input.npy"), input_shape, fortran_order, *(input.get()));
-    npy::LoadArrayFromNumpy(std::string("data/c_state.npy"), input_shape, fortran_order, *c_state.get());
-    npy::LoadArrayFromNumpy(std::string("data/h_state.npy"), input_shape, fortran_order, *h_state.get());
-    npy::LoadArrayFromNumpy(std::string("data/bias.npy"), input_shape, fortran_order, *bias.get());
-    for(int i=0; i<kNumInputGate; ++i){
-        char buf[128];
-        snprintf(buf, sizeof(buf), "data/W_%d.npy", i);
-        npy::LoadArrayFromNumpy<float>(std::string(buf), weight_shape, fortran_order, *(W->at(i).get()));
-        snprintf(buf, sizeof(buf), "data/U_%d.npy", i);
-        npy::LoadArrayFromNumpy<float>(std::string(buf), weight_shape, fortran_order, *(U->at(i).get()));
-    }
+    // npy::LoadArrayFromNumpy(std::string("data/input.npy"), input_shape, fortran_order, *(input.get()));
+    // npy::LoadArrayFromNumpy(std::string("data/c_state.npy"), input_shape, fortran_order, *c_state.get());
+    // npy::LoadArrayFromNumpy(std::string("data/h_state.npy"), input_shape, fortran_order, *h_state.get());
+    // npy::LoadArrayFromNumpy(std::string("data/bias.npy"), input_shape, fortran_order, *bias.get());
+    // for(int i=0; i<kNumInputGate; ++i){
+    //     char buf[128];
+    //     snprintf(buf, sizeof(buf), "data/W_%d.npy", i);
+    //     npy::LoadArrayFromNumpy<float>(std::string(buf), weight_shape, fortran_order, *(W->at(i).get()));
+    //     snprintf(buf, sizeof(buf), "data/U_%d.npy", i);
+    //     npy::LoadArrayFromNumpy<float>(std::string(buf), weight_shape, fortran_order, *(U->at(i).get()));
+    // }
     // Copy cell to layers and timesteps
     memcpy(input_wavefront.data(), input->data(), input_shape[0] * sizeof(float));
     for(int i=0; i<num_timestep; ++i){

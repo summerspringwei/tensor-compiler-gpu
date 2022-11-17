@@ -194,6 +194,20 @@ __global__ void __launch_bounds__(128) efficientnet_se_module_pipeline(
     }
   }
   __syncthreads();
+  // Load weight for 3. gemm
+  // Load weight , shared: (1, in_channel), 
+  pipe.producer_acquire();
+  if(blockIdx.x < reduce_channel){
+    for(int i=0; i<in_channel/block_size; ++i){
+      int reduce_idx = i*block_size + threadIdx.x;
+      // shared_reduce_weight[reduce_idx] = se_reduce_weight[(blockIdx.x % num_block_per_img) * in_channel + reduce_idx];
+      cuda::memcpy_async(shared_reduce_weight + reduce_idx, se_reduce_weight + (blockIdx.x % num_block_per_img) * in_channel + reduce_idx, shape, pipe);
+    }
+    if(threadIdx.x < (in_channel % block_size)){
+      shared_reduce_weight[(in_channel/block_size)*block_size + threadIdx.x] = se_reduce_weight[(blockIdx.x % num_block_per_img) * in_channel + (in_channel/block_size)*block_size + threadIdx.x];
+    }
+  }
+  pipe.producer_commit();
   // 2. Reduce
   for(int i=0; i<tile_size_in_channel; ++i){
     float sum = 0;
@@ -208,25 +222,14 @@ __global__ void __launch_bounds__(128) efficientnet_se_module_pipeline(
     }
     __syncthreads();
   }
+  pipe.consumer_wait();
+  __syncthreads();
+  pipe.consumer_release();
 
   grid.sync();
 
   // 3. compute gemm
   if(blockIdx.x < reduce_channel){
-    // Load weight , shared: (1, in_channel), 
-    pipe.producer_acquire();
-    for(int i=0; i<in_channel/block_size; ++i){
-      int reduce_idx = i*block_size + threadIdx.x;
-      // shared_reduce_weight[reduce_idx] = se_reduce_weight[(blockIdx.x % num_block_per_img) * in_channel + reduce_idx];
-      cuda::memcpy_async(shared_reduce_weight + reduce_idx, se_reduce_weight + (blockIdx.x % num_block_per_img) * in_channel + reduce_idx, shape, pipe);
-    }
-    if(threadIdx.x < (in_channel % block_size)){
-      shared_reduce_weight[(in_channel/block_size)*block_size + threadIdx.x] = se_reduce_weight[(blockIdx.x % num_block_per_img) * in_channel + (in_channel/block_size)*block_size + threadIdx.x];
-    }
-    pipe.producer_commit();
-    __syncthreads();
-    pipe.consumer_wait();
-    pipe.consumer_release();
     // warp reduce
     float sum = 0;
     for(int i=0; i<in_channel/block_size; ++i){
@@ -253,7 +256,8 @@ __global__ void __launch_bounds__(128) efficientnet_se_module_pipeline(
   pipe.producer_acquire();
   if(threadIdx.x < reduce_channel){
     for(int i=0; i<tile_size_in_channel; i++){
-      shared_expand_weight[i*reduce_channel + threadIdx.x] = se_expand_weight[(blockIdx.x % num_block_per_img) * tile_size_in_channel * reduce_channel + i*reduce_channel + threadIdx.x];
+      // shared_expand_weight[i*reduce_channel + threadIdx.x] = se_expand_weight[(blockIdx.x % num_block_per_img) * tile_size_in_channel * reduce_channel + i*reduce_channel + threadIdx.x];
+      cuda::memcpy_async(shared_expand_weight + i*reduce_channel + threadIdx.x, se_expand_weight + (blockIdx.x % num_block_per_img) * tile_size_in_channel * reduce_channel + i*reduce_channel + threadIdx.x, shape, pipe);
     }
   }
   pipe.producer_commit();
@@ -268,7 +272,9 @@ __global__ void __launch_bounds__(128) efficientnet_se_module_pipeline(
     sum = sigmoid(sum);
     se_expand_output[batch_idx * in_channel + (blockIdx.x % num_block_per_img) * tile_size_in_channel + threadIdx.x] = sum;
   }
+
   grid.sync();
+
   for(int i=0; i<tile_size_in_channel; ++i){
     for(int j=0; j<num_iter; ++j){
       auto result = shared_input[i*kPadImgSize + j * block_size + threadIdx.x] * se_expand_output[(blockIdx.x % num_block_per_img) * tile_size_in_channel + i];

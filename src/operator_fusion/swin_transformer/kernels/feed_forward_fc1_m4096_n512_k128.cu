@@ -46,13 +46,13 @@ static inline __device__ __host__ half htanh(half x) {
 
 // dim3(128, 4, 1), dim3(32, 2, 4)
 // shared_memory: 23040
-extern "C" __global__ void __launch_bounds__(256, 5) feed_forward_fc1_m4096_n512_k128(half* __restrict__ x, half* __restrict__ x_mean, half* __restrict__ x_variance_sum, half* __restrict__ weight, half* __restrict__ compute) {
+extern "C" __global__ void __launch_bounds__(256) feed_forward_fc1_m4096_n512_k128(half* __restrict__ x, half* __restrict__ x_mean, half* __restrict__ x_variance_sum, half* __restrict__ weight, half* __restrict__ compute) {
   nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, half> T_dense_wmma_accumulator[2];
   // extern __shared__ float all_shared_mem[];
   // half* compute_shared = (half*)all_shared_mem;
   // half* weight_shared = ((half*)all_shared_mem) + 2304;
-  __shared__ half compute_shared[2304];
-  __shared__ half weight_shared[9216];
+  __shared__ half compute_shared[2304];//A
+  __shared__ half weight_shared[9216];//B
   nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16, half, nvcuda::wmma::row_major> compute_shared_wmma_matrix_a[1];
   nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16, half, nvcuda::wmma::col_major> weight_shared_wmma_matrix_b[2];
   for (int j_c_outer_init = 0; j_c_outer_init < 2; ++j_c_outer_init) {
@@ -109,6 +109,8 @@ extern "C" __global__ void __launch_bounds__(256, 5) feed_forward_fc1_m4096_n512
       ((uint2*)(weight_shared + ((((((ax0_ax1_fused_outer_outer_outer_outer1 * 1152) + (((int)threadIdx.z) * 288)) + (((int)threadIdx.y) * 144)) + ((((int)threadIdx.x) >> 4) * 72)) + ((((int)threadIdx.x) & 15) * 4)))))[0] = ((uint2*)(weight + ((((((((((int)blockIdx.y) * 16384) + (ax0_ax1_fused_outer_outer_outer_outer1 * 2048)) + (((int)threadIdx.z) * 512)) + (((int)threadIdx.y) * 256)) + ((((int)threadIdx.x) >> 4) * 128)) + (k_outer_outer * 64)) + ((((int)threadIdx.x) & 15) * 4)))))[0];
     }
     __syncthreads();
+    //
+    
     for (int k_outer_inner = 0; k_outer_inner < 4; ++k_outer_inner) {
       (void)nvcuda::wmma::load_matrix_sync(compute_shared_wmma_matrix_a[0], ((half *)compute_shared + (((((int)threadIdx.y) * 1152) + (k_outer_inner * 16)))), 72);
       for (int ax0_outer = 0; ax0_outer < 2; ++ax0_outer) {

@@ -27,3 +27,4 @@ setup(name='bert_binding',
           )
         ],
       cmdclass={'build_ext': cpp_extension.BuildExtension})
+      

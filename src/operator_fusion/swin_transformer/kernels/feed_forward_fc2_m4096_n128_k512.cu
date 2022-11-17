@@ -1,6 +1,7 @@
 
 // ([4096, 512]) * ([128, 512]) -> [4096, 128]
 #include <cuda_fp16.h>
+
 #ifndef TVM_HELPER_FUNC
 #define TVM_HELPER_FUNC
 // Pack two half values.
@@ -30,6 +31,7 @@ static inline __device__ __host__ half htanh(half x) {
 // dim3(64, 2, 1), dim3(32, 2, 2)
 // shared_memory: 18432
 extern "C" __global__ void __launch_bounds__(128) feed_forward_fc2_m4096_n128_k512(half* __restrict__ x, half* __restrict__ weight, half* __restrict__ add, half* __restrict__ short_cut) {
+  
   nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 8, 32, 16, half> T_dense_wmma_accumulator[4];
   // extern __shared__ float all_shared_mem[];
   // half* x_shared = (half*)all_shared_mem;

@@ -22,4 +22,7 @@ sudo -E echo $LD_LIBRARY_PATH
 sudo -E /usr/local/cuda-11.7/bin/ncu -k lstm_reuse_shared_memory_v9 --set full -f --target-processes all -o lstm_ours  /home/xiachunwei/Software/pytf2.4/bin/python3 test_lstm.py
 
 
-sudo /usr/local/cuda/bin/ncu --metrics regex:sm__inst_executed* -k fused_sqq_bert_attn -o fused_sqq_bert_attn_opcodes -f --target-processes all ./torch_bert_attn_sqq 1 1 13
+# sudo /usr/local/cuda/bin/ncu --metrics regex:sm__inst_executed* --clock-control none -k fused_sqq_bert_query_key_softmax -o fused_sqq_bert_attn_query_key-softmax -f --target-processes all ./torch_bert_attn_sqq 1 1 14
+
+sudo -E /usr/local/cuda-11.7/bin/ncu  --set full -f --target-processes all -o lstm_rammer  $EXEC
+

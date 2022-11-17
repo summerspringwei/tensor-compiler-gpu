@@ -225,9 +225,9 @@ void bench_matmul(int m, int n, int k){
   cudaEvent_t startEvent, stopEvent;
   checkCuda(cudaEventCreate(&startEvent));
   checkCuda(cudaEventCreate(&stopEvent));
-  int loop=10000;
+  int loop=1;
   double min_latency = 1e9;
-  for(int a=0; a<10; ++a){
+  for(int a=0; a<1; ++a){
     auto t1 = std::chrono::steady_clock::now();
     float sum = 0;
     for(int i=0; i<loop; ++i){
@@ -279,6 +279,10 @@ void bench_qvk_matmul(int batch_size, int height, int width, int channel){
   bench_matmul<half>(batch_size * height * width, 3*channel, channel);
 }
 
+void bench_unfused_qvk_matmul(int batch_size, int height, int width, int channel){
+  bench_matmul<half>(batch_size * height * width, channel, channel);
+}
+
 
 void bench_FFN_fc1(int batch_size, int height, int width, int channel){
   bench_matmul<half>(batch_size * height * width, 4*channel, channel);
@@ -292,9 +296,11 @@ void bench_FFN_fc2(int batch_size, int height, int width, int channel){
 
 
 int main(){
-  bench_softmax({1, 1, 128, 768});
+  // bench_softmax({1, 1, 128, 768});
   // bench_query_key();
   // bench_qvk_matmul(1, 64, 64, 128);
+  // bench_qvk_matmul(1, 384, 768, 768);
+  bench_unfused_qvk_matmul(1, 384, 768, 768);
   // bench_qvk_matmul(1, 32, 32, 256);
   // bench_qvk_matmul(1, 16, 16, 512);
   // bench_qvk_matmul(1, 8, 8, 1024);

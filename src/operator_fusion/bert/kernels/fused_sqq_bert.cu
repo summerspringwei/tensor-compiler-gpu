@@ -3763,3 +3763,8 @@ __global__ void fused_sqq_bert_attn(const half *__restrict__ qkv_weight,
   grid.sync();
   profile_grid_clock[clock_idx * 108 * 4 + blockIdx.x * 4 + warpIdx] = clock64(); clock_idx++;
 }
+
+
+
+
+

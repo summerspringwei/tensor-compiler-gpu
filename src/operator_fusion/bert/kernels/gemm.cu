@@ -9,7 +9,7 @@
 #include "fused_sqq_bert_pipelined.cu"
 #include "fused_sqq_bert_pipelined_v2.cu"
 #include "debug_single_kernel.cu"
-
+#include "fused_sqq_bert_query_key_softmax.cu"
 
 using namespace fuselage::experiments::networks::bert;
 

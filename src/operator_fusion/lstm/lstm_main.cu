@@ -22,16 +22,16 @@
 // #define LSTM_DEV_FUNC  { \
 //     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v8<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 32*1024);};
 
-// #define LSTM_DEV_FUNC  { \
-//     cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 48*1024);};
-
 #define LSTM_DEV_FUNC  { \
-lstm_reuse_shared_memory_v9_block_sync<1, 10, 256, 100><<<dim3(320, 1, 1), dim3(32, 8, 1), 48*1024>>>( \
-    (lstm_data.d_inputs_timestep), (lstm_data.d_outputs_timestep), \
-    (lstm_data.d_c_wavefront), (lstm_data.d_h_wavefront), (lstm_data.d_input_wavefront), \
-    (lstm_data.d_weight_input_wavefront), (lstm_data.d_weight_state_wavefront), (lstm_data.d_bias), \
-    (lstm_data.d_output_buffer) ); \
-    };
+    cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), encoder_kernelArgs, 48*1024);};
+
+// #define LSTM_DEV_FUNC  { \
+// lstm_reuse_shared_memory_v9_block_sync<1, 10, 256, 100><<<dim3(320, 1, 1), dim3(32, 8, 1), 48*1024>>>( \
+//     (lstm_data.d_inputs_timestep), (lstm_data.d_outputs_timestep), \
+//     (lstm_data.d_c_wavefront), (lstm_data.d_h_wavefront), (lstm_data.d_input_wavefront), \
+//     (lstm_data.d_weight_input_wavefront), (lstm_data.d_weight_state_wavefront), (lstm_data.d_bias), \
+//     (lstm_data.d_output_buffer) ); \
+//     };
 
 #define CUDA_CHECK_RESULT if (result != cudaSuccess) \
     { \
