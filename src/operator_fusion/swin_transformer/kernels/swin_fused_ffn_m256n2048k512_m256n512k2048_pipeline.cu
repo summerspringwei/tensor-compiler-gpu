@@ -3,10 +3,8 @@
 #include <cuda/pipeline>
 #include <mma.h>
 
-
-
 // fc1_weight shape: (K, M), input shape: (N, K), output shape(N, M)
-__global__ void swin_transformer_fused_fc1_fc2(const half *__restrict__ fc1_weight, // weight
+__global__ void swin_transformer_fused_fc1_fc2_pipeline(const half *__restrict__ fc1_weight, // weight
                                      const half *__restrict__ input, // input
                                      half *__restrict__ fc1_output,
                                      const half *__restrict__ fc2_weight,
@@ -14,6 +12,8 @@ __global__ void swin_transformer_fused_fc1_fc2(const half *__restrict__ fc1_weig
     using namespace nvcuda;
     extern __shared__ half all_shared_mem[];
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
+    int fc1_offset_matrix_a_shared = 0;
+    int fc1_offset_matrix_b_shared = 0;
     // Begin of fc1
     // gridDim:(4, 16, 1) blockDim:(128, 1, 1), shared memory:138240
     if((blockIdx.x < 16) && (blockIdx.y < 4)){
@@ -36,30 +36,17 @@ __global__ void swin_transformer_fused_fc1_fc2(const half *__restrict__ fc1_weig
       kWarpSize = 32,
       kAccSkew = 8,
     };
-
+    // [0: 64*128]
     half *acc_shared;
     half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
+    fc1_offset_matrix_a_shared = kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
+    fc1_offset_matrix_b_shared = kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew);
     matrix_a_shared[0] = all_shared_mem;
-    matrix_a_shared[1] =
-        all_shared_mem +
-        kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
-    matrix_a_shared[2] =
-        all_shared_mem +
-        2 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
-
-    matrix_b_shared[0] =
-        all_shared_mem +
-        3 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
-
-    matrix_b_shared[1] =
-        all_shared_mem +
-        3 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew) +
-        kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew);
-
-    matrix_b_shared[2] =
-        all_shared_mem +
-        3 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew) +
-        2 * kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew);
+    matrix_b_shared[0] = matrix_a_shared[0] + fc1_offset_matrix_a_shared;
+    matrix_a_shared[1] = matrix_b_shared[0] + fc1_offset_matrix_b_shared;
+    matrix_b_shared[1] = matrix_a_shared[1] + fc1_offset_matrix_a_shared;
+    matrix_a_shared[2] = matrix_b_shared[1] + fc1_offset_matrix_b_shared;
+    matrix_b_shared[2] = matrix_a_shared[2] + fc1_offset_matrix_a_shared;
 
     acc_shared = all_shared_mem;
 
@@ -295,7 +282,123 @@ __global__ void swin_transformer_fused_fc1_fc2(const half *__restrict__ fc1_weig
         // The sync is not necessary when compute time is large enough
         // __syncthreads();
     }
+    // matrix_a_shared[2] and matrix_b_shared[2] is free at this time
+    // Load fc2's weights
 
+
+{
+    if((blockIdx.x < 8) && (blockIdx.y < 4)){
+    enum {
+      M=512,
+      N=256,
+      K=2048,
+      kChunkK=4,
+      kBlockRowWarps=2,
+      kBlockColWarps=2,
+      kWarpRowTiles=2,
+      kWarpColTiles=2,
+      kInputSkew=8,
+      kStage = 3,
+      kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
+      kBlockColTiles = kBlockColWarps * kWarpColTiles,
+      kWmmaM = 16,
+      kWmmaN = 16,
+      kWmmaK = 16,
+      kWarpSize = 32,
+      kAccSkew = 8,
+    };
+    half *acc_shared;
+    half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
+    const int fc2_offset_matrix_a_shared = kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
+    const int fc2_offset_matrix_b_shared = kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew);
+    // Note this layout is much different
+    matrix_a_shared[0] = all_shared_mem + 2 * (fc1_offset_matrix_a_shared + fc1_offset_matrix_b_shared);
+    matrix_a_shared[1] = matrix_a_shared[0] + fc2_offset_matrix_a_shared;
+    matrix_a_shared[2] = all_shared_mem;
+    matrix_b_shared[0] = matrix_a_shared[2] + fc2_offset_matrix_a_shared;
+    matrix_b_shared[1] = matrix_b_shared[0] + fc2_offset_matrix_b_shared;
+    matrix_b_shared[2] = matrix_b_shared[1] + fc2_offset_matrix_b_shared;
+
+    acc_shared = all_shared_mem;
+
+    const int row_warp_id = (threadIdx.x / kWarpSize) % kBlockRowWarps;
+    const int col_warp_id = (threadIdx.x / kWarpSize) / kBlockRowWarps;
+
+    enum {
+        kThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
+        kLoadALanesPerRow =
+            kWmmaM * kBlockRowTiles / (sizeof(float4) / sizeof(half)) >=
+                    kWarpSize
+                ? kWarpSize
+                : kWmmaM * kBlockRowTiles / (sizeof(float4) / sizeof(half)),
+        kLoadAColsPerIter = kThreads / kLoadALanesPerRow,
+        kLoadAInnerLoop = kWmmaM * kBlockRowTiles /
+                          (sizeof(float4) / sizeof(half) * kLoadALanesPerRow),
+
+        kLoadBLanesPerRow =
+            kWmmaK * kChunkK / (sizeof(float4) / sizeof(half)) >= kWarpSize
+                ? kWarpSize
+                : kWmmaK * kChunkK / (sizeof(float4) / sizeof(half)),
+        kLoadBColsPerIter = kThreads / kLoadBLanesPerRow,
+        kLoadBInnerLoop = kWmmaK * kChunkK /
+                          (sizeof(float4) / sizeof(half) * kLoadBLanesPerRow),
+
+        kStoreCLanesPerRow = kLoadALanesPerRow,
+        kStoreCColsPerIter = kLoadAColsPerIter,
+        kStoreCInnerLoop = kLoadAInnerLoop,
+    };
+
+    static_assert(kWmmaK * kChunkK % kLoadAColsPerIter == 0);
+    static_assert(kWmmaN * kBlockColTiles % kStoreCColsPerIter == 0);
+    static_assert(kWmmaN * kBlockColTiles % kLoadBColsPerIter == 0);
+
+    const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
+    int stage = 0;
+    int k_loop = 0;
+
+    constexpr int a_dst_i_stride =
+        kLoadAColsPerIter * (kWmmaM * kBlockRowTiles + kInputSkew);
+    constexpr int a_dst_j_stride =
+        kLoadALanesPerRow * sizeof(float4) / sizeof(half);
+
+    constexpr int a_src_i_stride = kLoadAColsPerIter * M;
+    constexpr int a_src_j_stride =
+        (kLoadALanesPerRow * sizeof(float4) / sizeof(half));
+
+    // Prologue
+#pragma unroll
+    for (int s = 0; s < kStage - 1; ++s) {
+        pipe.producer_acquire();
+        half *a_dst_base =
+            matrix_a_shared[(stage + s) % kStage] +
+            (0 * kLoadAColsPerIter + threadIdx.x / kLoadALanesPerRow) *
+                (kWmmaM * kBlockRowTiles + kInputSkew) +
+            ((threadIdx.x & (kLoadALanesPerRow - 1)) + 0 * kLoadALanesPerRow) *
+                sizeof(float4) / sizeof(half);
+        
+        const half *a_src_base =
+            fc2_weight + blockIdx.z * K * M +
+            blockIdx.x * kBlockRowTiles * kWmmaM +
+            ((k_loop + s) * kChunkK * kWmmaK + 0 * kLoadAColsPerIter +
+             threadIdx.x / kLoadALanesPerRow) *
+                M +
+            ((threadIdx.x & (kLoadALanesPerRow - 1)) + 0 * kLoadALanesPerRow) *
+                (sizeof(float4) / sizeof(half));
+
+#pragma unroll
+        for (int i = 0; i < kChunkK * kWmmaK / kLoadAColsPerIter; ++i) {
+#pragma unroll
+            for (int j = 0; j < kLoadAInnerLoop; ++j) {
+                cuda::memcpy_async(
+                    a_dst_base + i * a_dst_i_stride + j * a_dst_j_stride,
+                    a_src_base + i * a_src_i_stride + j * a_src_j_stride, shape,
+                    pipe);
+            }
+        }
+        pipe.producer_commit();
+    }
+    }
+}
     // Epilogue
 #pragma unroll
     for (int s = kStage - 1; s >= 1; --s) {
@@ -389,6 +492,14 @@ __global__ void swin_transformer_fused_fc1_fc2(const half *__restrict__ fc1_weig
                                             j * c_src_j_stride);
         }
     }
+    // Wait fc2's weight
+    if((blockIdx.x < 8) && (blockIdx.y < 4)){
+        for (int s = 0; s < kStage - 1; ++s) {
+            pipe.consumer_wait();
+            __syncthreads();
+            pipe.consumer_release();
+        }
+    }
   }// End of FC1
   grid.sync();
   // Begin of FC2
@@ -416,27 +527,15 @@ __global__ void swin_transformer_fused_fc1_fc2(const half *__restrict__ fc1_weig
     };
     half *acc_shared;
     half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
-    matrix_a_shared[0] = all_shared_mem;
-    matrix_a_shared[1] =
-        all_shared_mem +
-        kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
-    matrix_a_shared[2] =
-        all_shared_mem +
-        2 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
-
-    matrix_b_shared[0] =
-        all_shared_mem +
-        3 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
-
-    matrix_b_shared[1] =
-        all_shared_mem +
-        3 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew) +
-        kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew);
-
-    matrix_b_shared[2] =
-        all_shared_mem +
-        3 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew) +
-        2 * kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew);
+    const int fc2_offset_matrix_a_shared = kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew);
+    const int fc2_offset_matrix_b_shared = kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew);
+    // Note this layout is much different
+    matrix_a_shared[0] = all_shared_mem + 2 * (fc1_offset_matrix_a_shared + fc1_offset_matrix_b_shared);
+    matrix_a_shared[1] = matrix_a_shared[0] + fc2_offset_matrix_a_shared;
+    matrix_a_shared[2] = all_shared_mem;
+    matrix_b_shared[0] = matrix_a_shared[2] + fc2_offset_matrix_a_shared;
+    matrix_b_shared[1] = matrix_b_shared[0] + fc2_offset_matrix_b_shared;
+    matrix_b_shared[2] = matrix_b_shared[1] + fc2_offset_matrix_b_shared;
 
     acc_shared = all_shared_mem;
 
@@ -517,22 +616,6 @@ __global__ void swin_transformer_fused_fc1_fc2(const half *__restrict__ fc1_weig
 #pragma unroll
     for (int s = 0; s < kStage - 1; ++s) {
         pipe.producer_acquire();
-        half *a_dst_base =
-            matrix_a_shared[(stage + s) % kStage] +
-            (0 * kLoadAColsPerIter + threadIdx.x / kLoadALanesPerRow) *
-                (kWmmaM * kBlockRowTiles + kInputSkew) +
-            ((threadIdx.x & (kLoadALanesPerRow - 1)) + 0 * kLoadALanesPerRow) *
-                sizeof(float4) / sizeof(half);
-        
-        const half *a_src_base =
-            fc2_weight + blockIdx.z * K * M +
-            blockIdx.x * kBlockRowTiles * kWmmaM +
-            ((k_loop + s) * kChunkK * kWmmaK + 0 * kLoadAColsPerIter +
-             threadIdx.x / kLoadALanesPerRow) *
-                M +
-            ((threadIdx.x & (kLoadALanesPerRow - 1)) + 0 * kLoadALanesPerRow) *
-                (sizeof(float4) / sizeof(half));
-
         half *b_dst_base =
             matrix_b_shared[(stage + s) % kStage] +
             (0 * kLoadBColsPerIter + threadIdx.x / kLoadBLanesPerRow) *
@@ -547,17 +630,6 @@ __global__ void swin_transformer_fused_fc1_fc2(const half *__restrict__ fc1_weig
                 K +
             ((threadIdx.x & (kLoadBLanesPerRow - 1)) + 0 * kLoadBLanesPerRow) *
                 (sizeof(float4) / sizeof(half));
-
-#pragma unroll
-        for (int i = 0; i < kChunkK * kWmmaK / kLoadAColsPerIter; ++i) {
-#pragma unroll
-            for (int j = 0; j < kLoadAInnerLoop; ++j) {
-                cuda::memcpy_async(
-                    a_dst_base + i * a_dst_i_stride + j * a_dst_j_stride,
-                    a_src_base + i * a_src_i_stride + j * a_src_j_stride, shape,
-                    pipe);
-            }
-        }
 
 #pragma unroll
         for (int i = 0; i < kBlockColTiles * kWmmaN / kLoadBColsPerIter; ++i) {

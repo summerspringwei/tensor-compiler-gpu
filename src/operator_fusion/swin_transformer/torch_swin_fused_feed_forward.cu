@@ -16,7 +16,7 @@
 #include "../../cuda_utils.h"
 #include "../torch_utils.h"
 #include "kernels/swin_fused_ffn_m256n2048k512_m256n512k2048.cu"
-
+#include "kernels/swin_fused_ffn_m256n2048k512_m256n512k2048_pipeline.cu"
 
 
 float test_fused_feed_forward(int round_cout = 1, int loop = 1, int func_id = 0, int compare_level=0)
@@ -40,20 +40,21 @@ float test_fused_feed_forward(int round_cout = 1, int loop = 1, int func_id = 0,
   std::vector<unsigned long> fc2_shape = {hidden_features, in_features};
   npy::LoadArrayFromNumpy<float>(dir_path+std::string("swin-transformer-Matmul_1437_fc2_weight_2048x512.npy"), 
     fc2_shape, fortran_order, weight_buffer);
-  // auto fc2_weight = torch::from_blob(weight_buffer.data(), {hidden_features, in_features}).clone().toType(torch::kHalf).to(torch::kCUDA);
+  auto fc2_weight = torch::from_blob(weight_buffer.data(), {hidden_features, in_features}).clone().toType(torch::kHalf).to(torch::kCUDA);
   
   // auto fc1_weight = torch::ones({in_features, hidden_features}, options_fp16);
-  auto fc2_weight = torch::ones({hidden_features, in_features}, options_fp16);
+  // auto fc2_weight = torch::ones({hidden_features, in_features}, options_fp16);
 
   // Alocate input and output
-  // auto x = torch::nn::init::uniform_(
-  //     torch::randn({batch_size * seq_length, hidden_features}, options_fp16), 0, 1);
+  auto x = torch::nn::init::uniform_(
+      torch::randn({batch_size * seq_length, in_features}, options_fp16), 0, 1);
   // x shape: (N, K)
-  auto x = torch::ones({batch_size*seq_length, in_features}, options_fp16);
+  // auto x = torch::ones({batch_size*seq_length, in_features}, options_fp16);
   auto fc1_output = torch::zeros({batch_size * seq_length, hidden_features}, options_fp16);
-  auto fc2_output = torch::zeros({in_features, batch_size * seq_length}, options_fp16);
+  auto fc2_output = torch::zeros({batch_size * seq_length, in_features}, options_fp16);
 
   auto t_fc1_output = torch::matmul(x, fc1_weight);
+  auto t_fc2_output = torch::matmul(t_fc1_output, fc2_weight);
 
   // Get pointers
   at::Half *ptr_x = x.data<at::Half>();
@@ -77,8 +78,13 @@ float test_fused_feed_forward(int round_cout = 1, int loop = 1, int func_id = 0,
   checkCuda(cudaFuncSetAttribute(swin_transformer_fused_fc1_fc2,
                                     cudaFuncAttributeMaxDynamicSharedMemorySize,
                                     fused_fc1_fc2_shared_memory));
+  checkCuda(cudaFuncSetAttribute(swin_transformer_fused_fc1_fc2_pipeline,
+                                    cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                    fused_fc1_fc2_shared_memory));
   cudaOccupancyMaxActiveBlocksPerMultiprocessor(&num_blocks, swin_transformer_fused_fc1_fc2, 128, fused_fc1_fc2_shared_memory);
-  printf("fused_fc1_fc2 OccupancyMaxActiveBlocksPerMultiprocessor: %d\n", num_blocks);
+  printf("swin_transformer_fused_fc1_fc2 OccupancyMaxActiveBlocksPerMultiprocessor: %d\n", num_blocks);
+  cudaOccupancyMaxActiveBlocksPerMultiprocessor(&num_blocks, swin_transformer_fused_fc1_fc2_pipeline, 128, fused_fc1_fc2_shared_memory);
+  printf("swin_transformer_fused_fc1_fc2_pipeline OccupancyMaxActiveBlocksPerMultiprocessor: %d\n", num_blocks);
   
   auto device_func = [&](int func_id)
   {
@@ -88,6 +94,13 @@ float test_fused_feed_forward(int round_cout = 1, int loop = 1, int func_id = 0,
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(fc2_output.type(), "swin_transformer_fused_fc1_fc2", [&]
       {
         checkCuda(cudaLaunchCooperativeKernel((void*)swin_transformer_fused_fc1_fc2, 
+          dim3(16, 4, 1), dim3(128, 1, 1), fused_feed_forward_fc1_fc2_kernel_args, fused_fc1_fc2_shared_memory));
+      });
+      break;
+    case 1:
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(fc2_output.type(), "swin_transformer_fused_fc1_fc2", [&]
+      {
+        checkCuda(cudaLaunchCooperativeKernel((void*)swin_transformer_fused_fc1_fc2_pipeline, 
           dim3(16, 4, 1), dim3(128, 1, 1), fused_feed_forward_fc1_fc2_kernel_args, fused_fc1_fc2_shared_memory));
       });
       break;
@@ -101,9 +114,9 @@ float test_fused_feed_forward(int round_cout = 1, int loop = 1, int func_id = 0,
   cudaDeviceSynchronize();
 
   // Check result
-  my_compare(t_fc1_output, fc1_output, 1.0/16, 1.0/1024, 2);
+  my_compare(t_fc1_output, fc1_output, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_fc2_output, fc2_output, 1.0/16, 1.0/1024, compare_level);
   
-  return 0;
   // Benchmark
   cudaEvent_t startEvent, stopEvent;
   checkCuda(cudaEventCreate(&startEvent));

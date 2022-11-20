@@ -116,4 +116,41 @@ void check_compatability(int numThreads, int sharedMemSize, void* cuda_kernel){
 }
 
 
+
+template<typename T, typename... Args>
+float benchmarkCudaFunc(T func,int num_warmup,
+  int repeat, int num_bench, Args... args){
+  for(int i=0; i<num_warmup;++i){
+    func(args...);
+  }
+  // Benchmark
+  cudaEvent_t startEvent, stopEvent;
+  checkCuda(cudaEventCreate(&startEvent));
+  checkCuda(cudaEventCreate(&stopEvent));
+
+  float min_avg = 1e10;
+  for (int round = 0; round < repeat; ++round)
+  {
+    float ms = 0, latency_sum = 0;
+    for (int i = 0; i < num_bench; ++i)
+    {
+      checkCuda(cudaEventRecord(startEvent, 0));
+      func(args...);
+      checkCuda(cudaEventRecord(stopEvent, 0));
+      checkCuda(cudaEventSynchronize(stopEvent));
+      checkCuda(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+      latency_sum += ms;
+    }
+    auto avg = latency_sum / num_bench;
+    if (avg < min_avg)
+    {
+      min_avg = avg;
+    }
+  }
+
+  checkCuda(cudaEventDestroy(startEvent));
+  checkCuda(cudaEventDestroy(stopEvent));
+  return min_avg * 1000;
+}
+
 #endif
