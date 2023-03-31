@@ -492,7 +492,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   
   // Check result
   auto value = torch::reshape(torch::split(output_qkv, 1, 0)[2], {num_heads, max_seq_length, hidden_size});
-  // my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
+  my_compare(t_value, value, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_query_key_output_sum, query_key_softmax_sum, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_query_key_softmax, query_key_output, 1.0/16, 1.0/1024, compare_level);
   // my_compare(t_attn_value_output_permuted, attn_value_output, 1.0/16, 1.0/1024, compare_level);

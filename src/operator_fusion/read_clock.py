@@ -11,6 +11,7 @@ def read_profile_cycles(file_path, gpu_freqency, minimal_blocks):
   tensor = list(tensor_model.parameters())[0]
   print(tensor)
   [stages, blocks, warps] = tensor.shape
+  print("stages:{}, blocks:{}, warps:{}".format(stages, blocks, warps))
   tensor = tensor[:, 0:minimal_blocks, :]
   cycles_stage = torch.zeros((stages-1, minimal_blocks, warps), dtype=torch.int64)
   latency_stage = torch.zeros((stages-1, minimal_blocks), dtype=torch.float32)
@@ -30,11 +31,14 @@ if __name__=="__main__":
   # b = a * (1.5)
   # print(b)
   # print(np.sum(b))
-  dir_path = "/home/xiachunwei/Projects/tensor-compiler-gpu/release/"
+  # dir_path = "/home/xiachunwei/Projects/tensor-compiler-gpu/release/"
   # file_path = os.path.join(dir_path, "profile_clock.pt")
   # read_profile_cycles(file_path, 765, 108)
-  attn_file_path = os.path.join(dir_path, "attn_profile_clock.pt")
-  read_profile_cycles(attn_file_path, 1410, 72)
-  attn_file_path = os.path.join(dir_path, "feed_forward_profile_clock.pt")
-  read_profile_cycles(attn_file_path, 1410, 72)
-  
+  # attn_file_path = os.path.join(dir_path, "attn_profile_clock.pt")
+  # read_profile_cycles(attn_file_path, 1410, 72)
+  # attn_file_path = os.path.join(dir_path, "feed_forward_profile_clock.pt")
+  # read_profile_cycles(attn_file_path, 1410, 72)
+
+  dir_path = "/home/xiachunwei/Projects/tensor-compiler-gpu/101_release/"
+  attn_file_path = os.path.join(dir_path, "profile_clock.pt")
+  read_profile_cycles(attn_file_path, 1410, 108)

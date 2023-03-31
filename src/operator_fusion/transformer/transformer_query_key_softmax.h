@@ -2,6 +2,7 @@
 #include <cuda_fp16.h>
 #include <mma.h>
 #include "../../cuda_utils.h"
+#include "../../cuda_kernel_utils.h"
 
 // dim3(6, 12, 12), dim3(32, 2, 1)
 extern "C" __global__ void __launch_bounds__(64) query_key_matmul(half* __restrict__ placeholder, half* __restrict__ placeholder1, half* __restrict__ compute) {

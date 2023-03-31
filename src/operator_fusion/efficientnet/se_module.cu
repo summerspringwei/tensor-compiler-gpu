@@ -4,30 +4,6 @@
 
 #define UPDIV(x, y) (((x)%(y))==0? ((x)/(y)): (((x)/(y))+1))
 
-__inline__ __device__
-float warpReduceSum(float val) {
-  for (int offset = warpSize/2; offset > 0; offset /= 2) 
-    val += __shfl_down_sync(0xffffffff, val, offset);
-  return val;
-}
-
-__inline__ __device__
-float blockReduceSum(float val) {
-  static __shared__ float shared[32]; // Shared mem for 32 partial sums
-  int lane = threadIdx.x % warpSize;
-  int wid = threadIdx.x / warpSize;
-  val = warpReduceSum(val);     // Each warp performs partial reduction
-  if (lane==0) shared[wid]=val; // Write reduced value to shared memory
-  __syncthreads();              // Wait for all partial reductions
-  //read from shared memory only if that warp existed
-  val = (threadIdx.x < blockDim.x / warpSize) ? shared[lane] : 0;
-  if (wid==0) val = warpReduceSum(val); //Final reduce within first warp
-  return val;
-}
-
-__device__ __forceinline__ float sigmoid(float x){
-    return (1.0f / (1+exp(-x)));
-}
 
 // Split at in_channel, each block computes 16 in_channel elements
 // (1, 1152, 7*7) -> (1, 1152) * (1152, 48) -> (1, 48) * (48, 1152) -> (1, 1152)
@@ -41,9 +17,8 @@ __global__ void __launch_bounds__(128) efficientnet_se_module(
   cooperative_groups::grid_group grid = cooperative_groups::this_grid();
   static_assert(in_channel / tile_size_in_channel >= reduce_channel);
   const int block_size = 128;
-  // int kPadImgSize = ((height * width) % block_size)==0? ((height * width)): ((height * width) / block_size + 1) * block_size;
   const int kPadImgSize = UPDIV((height*width), block_size) * block_size;
-    
+  
   // 1. First load input to shared memory
   extern __shared__ float all_shared_memory[];
   float* shared_input = all_shared_memory;
@@ -56,7 +31,6 @@ __global__ void __launch_bounds__(128) efficientnet_se_module(
   __syncthreads();
 
   int batch_idx = 0;
-  int row_offset = (blockIdx.x / batch) * tile_size_in_channel;
   const int num_block_per_img = in_channel / tile_size_in_channel;
   const int kInputTileSize = (height * width * tile_size_in_channel);
   
@@ -66,7 +40,7 @@ __global__ void __launch_bounds__(128) efficientnet_se_module(
     for(int j=0; j<num_iter; ++j){
       shared_input[i*kPadImgSize + j * block_size + threadIdx.x] = input[input_offset + i*height*width + j*block_size+threadIdx.x];
     }
-    if(threadIdx.x < ((height*width)%block_size)){
+    if(((height*width)%block_size) && (threadIdx.x < ((height*width)%block_size))){
       shared_input[i*kPadImgSize + num_iter * block_size + threadIdx.x]=input[input_offset + i*height*width + num_iter*block_size+threadIdx.x];
     }
   }
@@ -160,11 +134,9 @@ __global__ void __launch_bounds__(128) efficientnet_se_module_pipeline(
   float* se_expand_weight, float* se_expand_output){
   
   cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
-  //1, 112, 112, 32, 8, 2
   cooperative_groups::grid_group grid = cooperative_groups::this_grid();
   static_assert(in_channel / tile_size_in_channel >= reduce_channel);
   const int block_size = 128;
-  // int kPadImgSize = ((height * width) % block_size)==0? ((height * width)): ((height * width) / block_size + 1) * block_size;
   const int kPadImgSize = UPDIV((height*width), block_size) * block_size;
   const auto shape = cuda::aligned_size_t<alignof(float)>(sizeof(float));
   // 1. First load input to shared memory

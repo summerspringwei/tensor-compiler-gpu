@@ -46,18 +46,16 @@ void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, int 
     // auto y = reshaped_b[i].item().toHalf();
     auto x = reshaped_a[i].item().toFloat();
     auto y = reshaped_b[i].item().toFloat();
-    if(std::abs(x - y) > rotl * std::abs(x) + aotl){
+    auto left = std::abs(x - y);
+    auto right = rotl * std::abs(x) + aotl;
+    printf("%f < %f ? %d\n", left, right, left < right);
+    if(left > right){
       error_cnt ++;
       if(print_detail>=1){
         auto str_coord = idx2cordinate(i, acc_mul);
         sprintf(output_buff+offset, "%s %s", "diff ", str_coord.c_str());offset+=(5+str_coord.length());
         sprintf(f_buff, "%f %f\n", x, y);
         sprintf(output_buff+offset, "%s", f_buff);offset+=(strlen(f_buff));
-        // ss << "diff " << idx2cordinate(i, acc_mul);
-        // ss << x << " " << y << "\n";
-        // ss << __half2float(x) << " " << __half2float(y) << "\n";
-        // printf("diff ");
-        // printf(" %f %f\n", __half2float(x), __half2float(y));
       }
     }else{
       if(print_detail>=2){
