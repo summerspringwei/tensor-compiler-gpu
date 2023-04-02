@@ -295,7 +295,7 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_matmul1(
 // K is large while N is small
 // Each Block produce one element
 template<int64_t M, int64_t N, int64_t K>
-__global__ void __launch_bounds__(kBlockSize) matmul_with_block_reduce_k(float* A, float* B, float* C){
+__global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_matmul_with_block_reduce_k(float* A, float* B, float* C){
   const int blk_m = blockIdx.x / N;
   const int blk_n = blockIdx.x % N;
 
@@ -350,4 +350,12 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_matmul2(
 }
 
 
-
+template<int64_t num_elements>
+__global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_sigmoid(
+  float* input, float* output
+){
+  const int idx = blockIdx.x * kBlockSize + threadIdx.x;
+  if(idx < num_elements){
+    output[idx] = sigmoid(input[idx]);
+  }
+}
