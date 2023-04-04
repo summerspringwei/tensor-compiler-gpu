@@ -121,7 +121,7 @@ set_target_properties(efficientnet_se_module_unittest PROPERTIES CUDA_SEPARABLE_
 
 # target_compile_options(torch_bert_attn PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-G;-src-in-ptx>")
 
-if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   set(CUDA_OPT "-D_GLIBCXX_USE_CXX11_ABI=0 -g -G -O0")
 else()
   set(CUDA_OPT "-D_GLIBCXX_USE_CXX11_ABI=0 -O3")
