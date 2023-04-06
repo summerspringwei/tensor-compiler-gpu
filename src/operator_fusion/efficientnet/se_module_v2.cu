@@ -3,8 +3,6 @@
 
 #include "../../cuda_kernel_utils.h"
 
-#define UPDIV(x, y) (((x) % (y)) == 0 ? ((x) / (y)) : (((x) / (y)) + 1))
-
 #define kBlockSize 256
 
 template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,
@@ -127,27 +125,7 @@ __global__ void __launch_bounds__(kBlockSize)
   // (3) Third Op matmul: (N, RC) * (RC, IC) -> (N, RC)
   // Each block process RC*tile_size_in_channel
   // Each warp process RC, actual layout (N, RC), (IC, RC)
-  // if(blockIdx.x < in_channel / tile_size_in_channel){
-  //   const int warpId = threadIdx.x / warpSize;
-  //   if(warpId < tile_size_in_channel){
-  //     float mul_result[4] = {0, 0, 0, 0};
-  //     float sum = 0;
-  //     for(int i=0; i<UPDIV(reduce_channel, warpSize); ++i){
-  //       if(i*warpSize + threadIdx.x < reduce_channel){
-  //         auto matmul1_output = se_reduce_output[i*warpSize+threadIdx.x];
-  //         auto matmul2_weight = se_expand_weight[(blockIdx.x *
-  //         tile_size_in_channel + warpId) * reduce_channel +
-  //         i*warpSize+threadIdx.x]; mul_result[i] = matmul1_output *
-  //         matmul2_weight;
-  //       }
-  //       mul_result[i] = warpReduceSum(mul_result[i]);
-  //       sum += mul_result[i];
-  //     }
-  //     if((threadIdx.x % 32) == 0){
-  //       se_expand_output[(blockIdx.x * tile_size_in_channel + warpId)] = sum;
-  //     }
-  //   }
-  // }
+  
 }
 
 // First avg op, (N, C, H, W) -> (N, C)
@@ -224,45 +202,45 @@ template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,
           int64_t reduce_channel, int64_t tile_size_in_channel>
 __global__ void __launch_bounds__(kBlockSize)
     efficientnet_se_module_v2_avg_pool_v2(
-        float *input, float *reduce_sum_output, float *se_reduce_weight,
-        float *se_reduce_output, float *se_expand_weight,
-        float *se_expand_output, long long *profile_grid_clock) {
-  const int kNumWarp = kBlockSize / warpSize;
-  const int kPadImgSize = UPDIV((height * width), kBlockSize) * kBlockSize;
-  const int kImageSize = height * width;
-  static_assert(in_channel / tile_size_in_channel >= reduce_channel);
-
+        float *input, float *reduce_sum_output) {
+  
   extern __shared__ float all_shared_memory[];
-  float *shared_input = all_shared_memory;
-
-  // Each block load (tile_size_in_channel, H, W)
-  // Set the pad image element to 0
-  for (int i = 0; i < tile_size_in_channel; ++i) {
-    shared_input[(i + 1) * kPadImgSize - threadIdx.x] = 0;
-  }
-  for (int i = 0; i < tile_size_in_channel; ++i) {
-    for (int j = 0; j < kPadImgSize / kBlockSize; ++j) {
-      const int shared_idx = i * kPadImgSize + j * kBlockSize + threadIdx.x;
-      const int img_idx = i * kImageSize + j * kBlockSize + threadIdx.x;
-      const int global_idx =
-          blockIdx.x * tile_size_in_channel * kImageSize + img_idx;
-      if (j * kBlockSize + threadIdx.x < kImageSize) {
-        shared_input[shared_idx] = input[global_idx];
+  if(blockIdx.x < in_channel / tile_size_in_channel){
+    const int kNumWarp = kBlockSize / warpSize;
+    const int kPadImgSize = UPDIV((height * width), kBlockSize) * kBlockSize;
+    const int kImageSize = height * width;
+    float *shared_input = all_shared_memory;
+    static_assert(in_channel / tile_size_in_channel >= reduce_channel);
+    
+    // Each block load (tile_size_in_channel, H, W)
+    // Set the pad image element to 0
+    for (int i = 0; i < tile_size_in_channel; ++i) {
+      shared_input[(i + 1) * kPadImgSize - threadIdx.x] = 0;
+    }
+    for (int i = 0; i < tile_size_in_channel; ++i) {
+      for (int j = 0; j < kPadImgSize / kBlockSize; ++j) {
+        const int shared_idx = i * kPadImgSize + j * kBlockSize + threadIdx.x;
+        const int img_idx = i * kImageSize + j * kBlockSize + threadIdx.x;
+        const int global_idx =
+            blockIdx.x * tile_size_in_channel * kImageSize + img_idx;
+        if (j * kBlockSize + threadIdx.x < kImageSize) {
+          shared_input[shared_idx] = input[global_idx];
+        }
       }
     }
-  }
-  __syncthreads();
-  // Reduce across H*W
-  for (int i = 0; i < tile_size_in_channel; ++i) {
-    float sum = 0;
-    for (int j = 0; j < kPadImgSize / kBlockSize; ++j) {
-      const int shared_idx = i * kPadImgSize + j * kBlockSize + threadIdx.x;
-      sum += shared_input[shared_idx];
-    }
-    sum = blockReduceSum(sum);
-    if (threadIdx.x == 0) {
-      reduce_sum_output[blockIdx.x * tile_size_in_channel + i] =
-          sum / kImageSize;
+    __syncthreads();
+    // Reduce across H*W
+    for (int i = 0; i < tile_size_in_channel; ++i) {
+      float sum = 0;
+      for (int j = 0; j < kPadImgSize / kBlockSize; ++j) {
+        const int shared_idx = i * kPadImgSize + j * kBlockSize + threadIdx.x;
+        sum += shared_input[shared_idx];
+      }
+      sum = blockReduceSum(sum);
+      if (threadIdx.x == 0) {
+        reduce_sum_output[blockIdx.x * tile_size_in_channel + i] =
+            sum / kImageSize;
+      }
     }
   }
 }
@@ -331,20 +309,22 @@ template <int64_t M, int64_t N, int64_t K>
 __global__ void __launch_bounds__(kBlockSize)
     efficientnet_se_module_v2_matmul_with_block_reduce_k(float *A, float *B,
                                                          float *C) {
-  const int blk_m = blockIdx.x / N;
-  const int blk_n = blockIdx.x % N;
+  if(blockIdx.x < M * N){    
+    const int blk_m = blockIdx.x / N;
+    const int blk_n = blockIdx.x % N;
 
-  const int n_iter = UPDIV(K, kBlockSize);
-  float sum = 0;
-  for (int i = 0; i < n_iter; ++i) {
-    const int idx = i * kBlockSize + threadIdx.x;
-    if (idx < K) {
-      sum += (A[blk_m * K + idx] * B[blk_n * K + idx]);
+    const int n_iter = UPDIV(K, kBlockSize);
+    float sum = 0;
+    for (int i = 0; i < n_iter; ++i) {
+      const int idx = i * kBlockSize + threadIdx.x;
+      if (idx < K) {
+        sum += (A[blk_m * K + idx] * B[blk_n * K + idx]);
+      }
     }
-  }
-  sum = blockReduceSum(sum);
-  if (threadIdx.x == 0) {
-    C[blk_m * N + blk_n] = sum;
+    sum = blockReduceSum(sum);
+    if (threadIdx.x == 0) {
+      C[blk_m * N + blk_n] = sum;
+    }
   }
 }
 
@@ -407,17 +387,19 @@ template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,
 __global__ void __launch_bounds__(kBlockSize)
     efficientnet_se_module_v2_add(float *input, float *short_cut,
                                   float *output) {
-  const int kImgSize = height * width;
-  const int channel_offset = blockIdx.x * tile_size_in_channel * kImgSize;
-  const int kPadImgSize = UPDIV((kImgSize), kBlockSize) * kBlockSize;
-  // Reduce across H*W
-  for (int i = 0; i < tile_size_in_channel; ++i) {
-    for (int j = 0; j < kPadImgSize / kBlockSize; ++j) {
-      const int img_idx = j * kBlockSize + threadIdx.x;
-      if (img_idx < kImgSize) {
-        const int global_idx = channel_offset + i * kImgSize + img_idx;
-        output[global_idx] = input[global_idx] +
-                             short_cut[blockIdx.x * tile_size_in_channel + i];
+  if(blockIdx.x < in_channel / tile_size_in_channel){
+    const int kImgSize = height * width;
+    const int channel_offset = blockIdx.x * tile_size_in_channel * kImgSize;
+    const int kPadImgSize = UPDIV((kImgSize), kBlockSize) * kBlockSize;
+    // Reduce across H*W
+    for (int i = 0; i < tile_size_in_channel; ++i) {
+      for (int j = 0; j < kPadImgSize / kBlockSize; ++j) {
+        const int img_idx = j * kBlockSize + threadIdx.x;
+        if (img_idx < kImgSize) {
+          const int global_idx = channel_offset + i * kImgSize + img_idx;
+          output[global_idx] = input[global_idx] +
+                              short_cut[blockIdx.x * tile_size_in_channel + i];
+        }
       }
     }
   }

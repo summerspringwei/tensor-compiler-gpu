@@ -87,14 +87,14 @@ void check_compatability(int numThreads, int sharedMemSize, void* cuda_kernel){
   int dev = 0;
   int supportsCoopLaunch = 0;
   cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, dev);
-  if(supportsCoopLaunch){
-    printf("Device support CoopLaunch\n");
+  if(!supportsCoopLaunch){
+    printf("Device does not support CoopLaunch\n");
   }
   cudaDeviceProp deviceProp; \
   cudaGetDeviceProperties(&deviceProp, dev); \
   int numBlocksPerSm;
   cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, cuda_kernel, numThreads, sharedMemSize); 
-  printf("fused_fc_fc: OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);
+  printf("OccupancyMaxActiveBlocksPerMultiprocessor: %d, multiProcessorCount: %d\n", numBlocksPerSm, deviceProp.multiProcessorCount);
 }
 
 

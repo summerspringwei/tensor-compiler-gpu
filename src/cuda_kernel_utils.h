@@ -3,6 +3,7 @@
 
 #define FULL_MASK 0xffffffff
 #define warpSize 32
+#define UPDIV(x, y) (((x) % (y)) == 0 ? ((x) / (y)) : (((x) / (y)) + 1))
 
 __inline__ __device__ 
 float warpReduceSum(float val) {

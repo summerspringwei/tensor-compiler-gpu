@@ -10,6 +10,7 @@
 #include "../../utils.h"
 #include "../torch_utils.h"
 #include "se_module_v2.cu"
+#include "se_module_fused.cu"
 #include "torch/all.h"
 
 /**
@@ -43,13 +44,20 @@ get_model_tensors(const char *argv) {
 
 void test_op(const void *func, void **kernel_args, dim3 grid_dim,
              dim3 block_dim, std::vector<torch::Tensor> compares,
-             int shared_memory_size) {
+             int shared_memory_size, bool cooperative=0) {
   checkCuda(cudaFuncSetAttribute(
       (const void *)func,
       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
       shared_memory_size));
-  checkCuda(cudaLaunchKernel((const void *)func, grid_dim, block_dim,
+  if(cooperative){
+    check_compatability(block_dim.x, shared_memory_size, (void *)func);
+    checkCuda(cudaLaunchCooperativeKernel((const void *)func, grid_dim, block_dim,
+                             kernel_args, shared_memory_size));  
+  }else{
+    checkCuda(cudaLaunchKernel((const void *)func, grid_dim, block_dim,
                              kernel_args, shared_memory_size));
+  }
+
   auto expected_output =
       compares[0].to(torch::kCPU).reshape(compares[0].numel());
   auto kernel_output = compares[1].to(torch::kCPU).reshape(compares[1].numel());
@@ -64,7 +72,7 @@ void efficient_se_module(
   // Generate random input
   auto input = torch::nn::init::uniform_(
       torch::randn({batch, in_channel, height, width}, options_fp32), 0, 1);
-  // auto input = torch::ones({batch, in_channel, height, width}, options_fp32);
+  // auto input = torch::ones({batch, in_channel, height, width}, options_fp32) * 2;
 
   // Load weight tensors from map
   std::string prefix = "_blocks." + std::to_string(block_id);
@@ -189,17 +197,91 @@ void efficient_se_module(
         dim3(kBlockSize, 1, 1), {t_se_short_cut_add, se_short_cut_add},
         shared_memory_size);
   }
+  // Test simple fused op
+  {
+    void* se_kernel_args[] = {
+      (void *)&(ptr_input),
+      (void *)&(ptr_reduce_output),
+      (void *)&(ptr_se_reduce_weight),
+      (void *)&(ptr_se_reduce_output),
+      (void *)&(ptr_se_reduce_sigmoid),
+      (void *)&(ptr_se_expand_weight),
+      (void *)&(ptr_se_expand_output),
+      (void *)&(ptr_se_expand_sigmoid),
+      (void *)&(ptr_se_short_cut_add),
+      (void *)&(ptr_profile_clock)
+    };
+    test_op((const void*)efficientnet_se_module_v2_simple_fused<batch, height, width, in_channel,
+                                          reduce_channel, tile_size_in_channel>,
+                                          se_kernel_args, 
+                                          dim3(in_channel / tile_size_in_channel, 1, 1),
+        dim3(kBlockSize, 1, 1),
+        // {t_se_reduce_sigmoid, se_reduce_sigmoid},
+        // {t_se_expand_output, se_expand_output},
+        // {t_se_expand_sigmoid, se_expand_sigmoid},
+        {t_se_short_cut_add, se_short_cut_add},
+         shared_memory_size, 1);
+  }
+  // Test sigmoid fuse
+  {
+    void* se_kernel_args[] = {
+      (void *)&(ptr_input),
+      (void *)&(ptr_reduce_output),
+      (void *)&(ptr_se_reduce_weight),
+      (void *)&(ptr_se_reduce_output),
+      (void *)&(ptr_se_expand_weight),
+      (void *)&(ptr_se_expand_output),
+      (void *)&(ptr_se_short_cut_add),
+      (void *)&(ptr_profile_clock)
+    };
+    test_op((const void*)efficientnet_se_module_v2_sigmoid_fused<batch, height, width, in_channel,
+                                          reduce_channel, tile_size_in_channel>,
+                                          se_kernel_args, 
+                                          dim3(in_channel / tile_size_in_channel, 1, 1),
+        dim3(kBlockSize, 1, 1),
+        // {t_se_reduce_sigmoid, se_reduce_sigmoid},
+        // {t_se_expand_output, se_expand_output},
+        // {t_se_expand_sigmoid, se_expand_sigmoid},
+        {t_se_short_cut_add, se_short_cut_add},
+         shared_memory_size, 1);
+  }
+  // Test short cut fuse
+  {
+    void* se_kernel_args[] = {
+      (void *)&(ptr_input),
+      (void *)&(ptr_reduce_output),
+      (void *)&(ptr_se_reduce_weight),
+      (void *)&(ptr_se_reduce_output),
+      (void *)&(ptr_se_expand_weight),
+      (void *)&(ptr_se_expand_output),
+      (void *)&(ptr_se_short_cut_add),
+      (void *)&(ptr_profile_clock)
+    };
+    test_op((const void*)efficientnet_se_module_v2_short_cut_fused<batch, height, width, in_channel,
+                                          reduce_channel, tile_size_in_channel>,
+                                          se_kernel_args, 
+                                          dim3(in_channel / tile_size_in_channel, 1, 1),
+        dim3(kBlockSize, 1, 1),
+        // {t_se_reduce_sigmoid, se_reduce_sigmoid},
+        // {t_se_expand_output, se_expand_output},
+        // {t_se_expand_sigmoid, se_expand_sigmoid},
+        {t_se_short_cut_add, se_short_cut_add},
+         shared_memory_size, 1);
+  }
+  printf("efficient_se_module<%ld, %ld, %ld, %ld, %ld, %ld> pass\n", 
+    batch, height, width, in_channel,
+                                          reduce_channel, tile_size_in_channel);
 }
 
 int main(int argc, char **argv) {
   auto name_tensor_map = get_model_tensors(argv[1]);
-  efficient_se_module<1, 112, 112, 32, 8, 1>(name_tensor_map, 0, 96 * 1024);
-  efficient_se_module<1, 56, 56, 96, 4, 1>(name_tensor_map, 1, 96 * 1024);
-  efficient_se_module<1, 56, 56, 144, 6, 2>(name_tensor_map, 2, 96 * 1024);
+  efficient_se_module<1, 112, 112, 32, 8, 1>(name_tensor_map, 0, 56 * 1024);
+  efficient_se_module<1, 56, 56, 96, 4, 1>(name_tensor_map, 1, 48 * 1024);
+  efficient_se_module<1, 56, 56, 144, 6, 1>(name_tensor_map, 2, 48 * 1024);
   efficient_se_module<1, 28, 28, 144, 6, 1>(name_tensor_map, 3, 48 * 1024);
-  efficient_se_module<1, 28, 28, 240, 10, 2>(name_tensor_map, 4, 48 * 1024);
+  efficient_se_module<1, 28, 28, 240, 10, 1>(name_tensor_map, 4, 48 * 1024);
   efficient_se_module<1, 14, 14, 240, 10, 1>(name_tensor_map, 5, 32 * 1024);
-  efficient_se_module<1, 14, 14, 480, 20, 1>(name_tensor_map, 7, 24 * 1024);
+  efficient_se_module<1, 14, 14, 480, 20, 2>(name_tensor_map, 7, 24 * 1024);
   efficient_se_module<1, 14, 14, 672, 28, 3>(name_tensor_map, 9, 16 * 1024);
   efficient_se_module<1, 7, 7, 1152, 48, 4>(name_tensor_map, 12, 16 * 1024);
   return 0;
