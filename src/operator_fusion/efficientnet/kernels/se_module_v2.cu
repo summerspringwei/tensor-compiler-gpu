@@ -1,7 +1,7 @@
 #include <cooperative_groups.h>
 #include <cuda/pipeline>
 
-#include "../../cuda_kernel_utils.h"
+#include "../../../cuda_kernel_utils.h"
 
 #define kBlockSize 256
 

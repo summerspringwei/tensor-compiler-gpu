@@ -9,8 +9,8 @@
 #include "../../cuda_utils.h"
 #include "../../utils.h"
 #include "../torch_utils.h"
-#include "se_module_v2.cu"
-#include "se_module_fused.cu"
+#include "kernels/se_module_v2.cu"
+#include "kernels/se_module_global_fused.cu"
 #include "torch/all.h"
 
 /**
@@ -96,8 +96,9 @@ void efficient_se_module(
       torch::zeros({batch, height, width, in_channel}, options_fp32);
   auto se_short_cut_add =
       torch::zeros({batch, height, width, in_channel}, options_fp32);
+  // stages, number of blocks, number of warps
   auto profile_clock =
-      torch::zeros({3, kBlockSize, kBlockSize / 32}, options_int64);
+      torch::zeros({6, in_channel / tile_size_in_channel, kBlockSize / 32}, options_int64);
 
   // Get tensors' data pointer
   float *ptr_input = (float *)input.data_ptr<float>();
@@ -283,6 +284,7 @@ int main(int argc, char **argv) {
   efficient_se_module<1, 14, 14, 240, 10, 1>(name_tensor_map, 5, 32 * 1024);
   efficient_se_module<1, 14, 14, 480, 20, 2>(name_tensor_map, 7, 24 * 1024);
   efficient_se_module<1, 14, 14, 672, 28, 3>(name_tensor_map, 9, 16 * 1024);
+  efficient_se_module<1, 7, 7, 672, 28, 3>(name_tensor_map, 9, 16 * 1024);
   efficient_se_module<1, 7, 7, 1152, 48, 4>(name_tensor_map, 12, 16 * 1024);
   return 0;
 }

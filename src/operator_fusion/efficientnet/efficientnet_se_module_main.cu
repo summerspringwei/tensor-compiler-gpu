@@ -9,8 +9,8 @@
 #include "../../cuda_kernel_utils.h"
 #include "../torch_utils.h"
 
-#include "se_module.cu"
-#include "se_module_v2.cu"
+#include "kernels/se_module_v2.cu"
+#include "kernels/se_module_old_back.cu"
 
 
 template<int64_t batch, int64_t height, int64_t width,

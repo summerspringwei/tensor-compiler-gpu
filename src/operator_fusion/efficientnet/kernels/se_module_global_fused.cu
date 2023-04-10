@@ -19,7 +19,13 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_f
 ){
   cooperative_groups::grid_group grid = cooperative_groups::this_grid();
   extern __shared__ float all_shared_memory[];
-
+  // Note, we assume only blockIdx.x > 1
+  const int warpId = threadIdx.x / 32;
+  const int kNumWarpPerBlock = UPDIV(blockDim.x, 32);
+  const int kNumWarpPerGrid = gridDim.x * kNumWarpPerBlock;
+  int clock_wave_idx = 0;
+  // profile_clock[clock_wave_idx * kNumWarpPerGrid + (blockIdx.x * gridDim.x) * kNumWarpPerBlock + warpId] = clock64();
+  // clock_wave_idx++;
   // avg_pool
   if(blockIdx.x < in_channel / tile_size_in_channel){
     const int kNumWarp = kBlockSize / warpSize;
@@ -84,6 +90,8 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_f
     }
   }
   grid.sync();
+  // profile_clock[clock_wave_idx * kNumWarpPerGrid + (blockIdx.x * gridDim.x) * kNumWarpPerBlock + warpId] = clock64();
+  // clock_wave_idx++;
   // Sigmoid 1
   {
     const int idx = blockIdx.x * kBlockSize + threadIdx.x;
@@ -93,6 +101,8 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_f
     }
   }
   grid.sync();
+  // profile_clock[clock_wave_idx * kNumWarpPerGrid + (blockIdx.x * gridDim.x) * kNumWarpPerBlock + warpId] = clock64();
+  // clock_wave_idx++;
   // Matmul 2
   {
     if (blockIdx.x < in_channel / tile_size_in_channel) {
@@ -126,6 +136,8 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_f
     }
   }
   grid.sync();
+  // profile_clock[clock_wave_idx * kNumWarpPerGrid + (blockIdx.x * gridDim.x) * kNumWarpPerBlock + warpId] = clock64();
+  // clock_wave_idx++;
   // Sigmoid 2
   {
     const int idx = blockIdx.x * kBlockSize + threadIdx.x;
@@ -135,6 +147,8 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_f
     }
   }
   grid.sync();
+  // profile_clock[clock_wave_idx * kNumWarpPerGrid + (blockIdx.x * gridDim.x) * kNumWarpPerBlock + warpId] = clock64();
+  // clock_wave_idx++;
   // Short cut add
   if(blockIdx.x < in_channel / tile_size_in_channel){
     const int kImgSize = height * width;
@@ -153,7 +167,6 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_f
     }
   }
 }
-
 
 
 template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,

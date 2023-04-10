@@ -7,7 +7,7 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
-#include "fused_pointwise_pointwise.h"
+#include "kernels/fused_pointwise_pointwise.cu"
 #include "auto_scheduler_codegen/pointwise_112_112_16_32.h"
 #include "auto_scheduler_codegen/pointwise_112_112_32_96.h"
 #include "auto_scheduler_codegen/pointwise_conv_56_56_144_24.h"

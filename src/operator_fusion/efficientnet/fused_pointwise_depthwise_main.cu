@@ -5,7 +5,7 @@
 #include <mma.h>
 #include <cuda_fp16.h>
 
-#include "fused_pointwise_depthwise.h"
+#include "kernels/fused_pointwise_depthwise.cu"
 #include "auto_scheduler_codegen/pointwise_56_56_24_144.h"
 #include "auto_scheduler_codegen/depthwise_56_56_144_3_3_s11.h"
 #include "../../utils.h"

@@ -7,7 +7,7 @@
 #include <cstdlib>
 #include <time.h> 
 
-#include "fused_micro_operators.h"
+#include "kernels/fused_micro_operators.cu"
 
 #include "../../utils.h"
 #include "../../cuda_utils.h"
