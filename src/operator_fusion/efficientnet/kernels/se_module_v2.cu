@@ -381,6 +381,15 @@ __global__ void __launch_bounds__(kBlockSize)
   }
 }
 
+template <int64_t num_elements>
+__global__ void __launch_bounds__(kBlockSize)
+    efficientnet_se_module_v2_mul(float *a, float* b, float *output) {
+  const int idx = blockIdx.x * kBlockSize + threadIdx.x;
+  if (idx < num_elements) {
+    output[idx] = a[idx] * b[idx];
+  }
+}
+
 // Each block process (tile_size_in_channel, H, W)
 template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,
           int64_t reduce_channel, int64_t tile_size_in_channel>

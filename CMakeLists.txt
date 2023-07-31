@@ -63,6 +63,7 @@ add_executable(bert_feed_forward src/operator_fusion/bert/bert_feed_forward.cu)
 add_executable(bert_query_key src/operator_fusion/bert/bert_query_key.cu)
 add_executable(torch_bert_attn src/operator_fusion/bert/torch_bert_attn.cu)
 add_executable(torch_bert_attn_sqq src/operator_fusion/bert/torch_bert_attn_sqq.cu)
+add_executable(torch_bert_global_sync src/operator_fusion/bert/torch_bert_global_sync.cu)
 add_executable(torch_resnext src/operator_fusion/resnext/torch_resnext.cu)
 add_executable(torch_reduce src/operator_fusion/bert/torch_reduce.cu)
 add_executable(swin_fused_feed_forward src/operator_fusion/swin_transformer/torch_swin_fused_feed_forward.cu)
@@ -96,22 +97,17 @@ add_executable(efficientnet_se_module_main src/operator_fusion/efficientnet/effi
 add_executable(load_model src/operator_fusion/efficientnet/load_model.cc)
 add_executable(efficientnet_se_module_unittest src/operator_fusion/efficientnet/efficientnet_se_module_unittest.cu)
 
-
-# target_compile_definitions(torch_bert_attn_sqq PRIVATE REWRITE_RESULT_DEBUG=0)
-
 # set_target_properties(lstm_wavefront_magic PROPERTIES CUDA_ARCHITECTURES "70;75;80")
 target_link_libraries(cudnn_conv cudnn)
 target_link_libraries(cudnn_infer_ops cudnn cuda cublas)
 target_link_libraries(tvm_nerf cudnn cuda cublas)
 
-# target_compile_options(torch_bert_attn_sqq PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-#                       -Wl,--allow-multiple-definition
-#                        >)
 
 set(CMAKE_CUDA_FLAGS_DEBUG "-g -G -gencode  arch=compute_80,code=sm_80")
 set_target_properties(torch_utils PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(torch_bert_attn PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(torch_bert_attn_sqq PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+set_target_properties(torch_bert_global_sync PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(torch_resnext PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(torch_reduce PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(bert_kernels PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
@@ -130,6 +126,7 @@ message("Build torch_bert_attn with debug option ${CUDA_OPT}")
 target_compile_options(torch_utils PUBLIC ${CUDA_OPT})
 target_compile_options(torch_bert_attn PUBLIC ${CUDA_OPT})
 target_compile_options(torch_bert_attn_sqq PUBLIC ${CUDA_OPT})
+target_compile_options(torch_bert_global_sync PUBLIC ${CUDA_OPT})
 target_compile_options(torch_resnext PUBLIC ${CUDA_OPT} )
 target_compile_options(torch_reduce PUBLIC ${CUDA_OPT})
 target_compile_options(torch_resnext PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--maxrregcount 196>) 
@@ -137,12 +134,15 @@ target_compile_options(swin_fused_feed_forward PUBLIC ${CUDA_OPT})
 target_compile_options(efficientnet_se_module_main PUBLIC ${CUDA_OPT})
 target_compile_options(efficientnet_se_module_unittest PUBLIC ${CUDA_OPT})
 
+
 # target_link_options()
 target_link_directories(torch_resnext PUBLIC "/usr/local/cuda-11.7/lib64")
 target_link_directories(torch_bert_attn_sqq PUBLIC "/usr/local/cuda-11.7/lib64")
+target_link_directories(torch_bert_global_sync PUBLIC "/usr/local/cuda-11.7/lib64")
 
 target_link_options(torch_resnext PUBLIC "-L/usr/local/cuda-11.7/lib64")
 target_link_options(torch_bert_attn_sqq PUBLIC "-L/usr/local/cuda-11.7/lib64")
+target_link_options(torch_bert_global_sync PUBLIC "-L/usr/local/cuda-11.7/lib64")
 target_link_options(torch_reduce PUBLIC "-L/usr/local/cuda-11.7/lib64")
 target_link_options(torch_bert_attn PUBLIC "-L/usr/local/cuda-11.7/lib64")
 target_link_options(swin_fused_feed_forward PUBLIC "-L/usr/local/cuda-11.7/lib64")
@@ -150,6 +150,7 @@ target_link_options(efficientnet_se_module_main PUBLIC "-L/usr/local/cuda-11.7/l
 target_link_options(efficientnet_se_module_unittest PUBLIC "-L/usr/local/cuda-11.7/lib64")
 target_link_libraries(torch_bert_attn cublasLt cublas torch torch_cuda c10 c10_cuda torch_python torch_cuda_cu torch_cpu torch_utils)
 target_link_libraries(torch_bert_attn_sqq cublasLt cublas torch torch_cuda c10 c10_cuda torch_python torch_cuda_cu torch_cpu torch_utils)
+target_link_libraries(torch_bert_global_sync cublasLt cublas torch torch_cuda c10 c10_cuda torch_python torch_cuda_cu torch_cpu torch_utils)
 target_link_libraries(torch_resnext  torch torch_cuda c10 c10_cuda torch_python torch_cuda_cu torch_cpu torch_utils cublasLt cublas)
 target_link_libraries(torch_reduce cublasLt cublas torch torch_cuda c10 c10_cuda torch_python torch_cuda_cu torch_cpu torch_utils)
 target_link_libraries(swin_fused_feed_forward cublasLt cublas torch torch_cuda c10 c10_cuda torch_python torch_cuda_cu torch_cpu torch_utils)

@@ -5,12 +5,13 @@
 
 template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,
           int64_t reduce_channel, int64_t tile_size_in_channel>
-__global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_fused(
+__global__ void __launch_bounds__(kBlockSize, UPDIV((in_channel / tile_size_in_channel), 108)) efficientnet_se_module_v2_simple_fused(
   float *input,
   float *reduce_sum_output,
   float *se_reduce_weight,
   float *se_reduce_output,
   float *se_reduce_sigmoid,
+  float *se_reduce_mul,
   float *se_expand_weight,
   float *se_expand_output,
   float *se_expand_sigmoid,
@@ -101,6 +102,15 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_f
     }
   }
   grid.sync();
+  // Mul 1
+  {
+    const int idx = blockIdx.x * kBlockSize + threadIdx.x;
+    const int num_elements = reduce_channel;
+    if (idx < num_elements) {
+      se_reduce_mul[idx] = se_reduce_sigmoid[idx] * se_reduce_output[idx];
+    }
+  }
+  grid.sync();
   // profile_clock[clock_wave_idx * kNumWarpPerGrid + (blockIdx.x * gridDim.x) * kNumWarpPerBlock + warpId] = clock64();
   // clock_wave_idx++;
   // Matmul 2
@@ -171,7 +181,7 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_simple_f
 
 template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,
           int64_t reduce_channel, int64_t tile_size_in_channel>
-__global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_sigmoid_fused(
+__global__ void __launch_bounds__(kBlockSize, UPDIV((in_channel / tile_size_in_channel), 108)) efficientnet_se_module_v2_sigmoid_fused(
   float *input,
   float *reduce_sum_output,
   float *se_reduce_weight,
@@ -244,7 +254,7 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_sigmoid_
     }
     sum = blockReduceSum(sum);
     if (threadIdx.x == 0) {
-      C[blk_m * N + blk_n] = sigmoid(sum);
+      C[blk_m * N + blk_n] = sum * sigmoid(sum);
     }
   }
   grid.sync();
@@ -305,7 +315,7 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_sigmoid_
 
 template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,
           int64_t reduce_channel, int64_t tile_size_in_channel>
-__global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_short_cut_fused(
+__global__ void __launch_bounds__(kBlockSize, UPDIV((in_channel / tile_size_in_channel), 108)) efficientnet_se_module_v2_short_cut_fused(
   float *input,
   float *reduce_sum_output,
   float *se_reduce_weight,
@@ -357,7 +367,7 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_short_cu
     }
   }
   grid.sync();
-  // Matmul 1 + Sigmoid 1
+  // Matmul 1 + Sigmoid 1 + Mul
   if(blockIdx.x < batch * reduce_channel){
     const int M = batch;
     const int N = reduce_channel;
@@ -377,7 +387,7 @@ __global__ void __launch_bounds__(kBlockSize) efficientnet_se_module_v2_short_cu
     }
     sum = blockReduceSum(sum);
     if (threadIdx.x == 0) {
-      C[blk_m * N + blk_n] = sigmoid(sum);
+      C[blk_m * N + blk_n] = sum * sigmoid(sum);
     }
   }
   grid.sync();

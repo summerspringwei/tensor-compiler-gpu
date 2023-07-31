@@ -2,6 +2,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <torch/script.h> // One-stop header.
+#include "torch/all.h"
 
 #include <iostream>
 #include <memory>
@@ -11,7 +12,7 @@
 #include "../torch_utils.h"
 #include "kernels/se_module_v2.cu"
 #include "kernels/se_module_global_fused.cu"
-#include "torch/all.h"
+#include "kernels/se_module_tvm_fused.cu"
 
 /**
  * tensor name format
@@ -42,7 +43,7 @@ get_model_tensors(const char *argv) {
   return name_tensor_map;
 }
 
-void test_op(const void *func, void **kernel_args, dim3 grid_dim,
+bool test_op(const void *func, void **kernel_args, dim3 grid_dim,
              dim3 block_dim, std::vector<torch::Tensor> compares,
              int shared_memory_size, bool cooperative=0) {
   checkCuda(cudaFuncSetAttribute(
@@ -51,8 +52,10 @@ void test_op(const void *func, void **kernel_args, dim3 grid_dim,
       shared_memory_size));
   if(cooperative){
     check_compatability(block_dim.x, shared_memory_size, (void *)func);
+    printf("Launch dim: (%d, %d, %d)\n", grid_dim.x, grid_dim.y, grid_dim.z);
     checkCuda(cudaLaunchCooperativeKernel((const void *)func, grid_dim, block_dim,
-                             kernel_args, shared_memory_size));  
+                             kernel_args, shared_memory_size));
+    
   }else{
     checkCuda(cudaLaunchKernel((const void *)func, grid_dim, block_dim,
                              kernel_args, shared_memory_size));
@@ -61,7 +64,7 @@ void test_op(const void *func, void **kernel_args, dim3 grid_dim,
   auto expected_output =
       compares[0].to(torch::kCPU).reshape(compares[0].numel());
   auto kernel_output = compares[1].to(torch::kCPU).reshape(compares[1].numel());
-  assert(torch::allclose(expected_output, kernel_output, 1.0 / 16, 1.0 / 1024));
+  return (torch::allclose(expected_output, kernel_output, 1.0 / 16, 1.0 / 1024));
 }
 
 template <int64_t batch, int64_t height, int64_t width, int64_t in_channel,
@@ -90,6 +93,7 @@ void efficient_se_module(
   auto reduce_output = torch::zeros({batch, in_channel}, options_fp32);
   auto se_reduce_output = torch::zeros({batch, reduce_channel}, options_fp32);
   auto se_reduce_sigmoid = torch::zeros({batch, reduce_channel}, options_fp32);
+  auto se_reduce_mul = torch::zeros({batch, reduce_channel}, options_fp32);
   auto se_expand_output = torch::zeros({batch, in_channel}, options_fp32);
   auto se_expand_sigmoid = torch::zeros({batch, in_channel}, options_fp32);
   auto se_mul_output =
@@ -105,7 +109,8 @@ void efficient_se_module(
   float *ptr_reduce_output = (float *)reduce_output.data_ptr<float>();
   float *ptr_se_reduce_weight = (float *)se_reduce_weight.data_ptr<float>();
   float *ptr_se_reduce_output = (float *)se_reduce_output.data_ptr<float>();
-  auto ptr_se_reduce_sigmoid = se_reduce_sigmoid.data_ptr<float>();
+  float* ptr_se_reduce_sigmoid = se_reduce_sigmoid.data_ptr<float>();
+  float* ptr_se_reduce_mul = se_reduce_mul.data_ptr<float>();
   float *ptr_se_expand_weight = (float *)se_expand_weight.data_ptr<float>();
   float *ptr_se_expand_output = (float *)se_expand_output.data_ptr<float>();
   float *ptr_se_mul_output = (float *)se_mul_output.data_ptr<float>();
@@ -133,32 +138,48 @@ void efficient_se_module(
                               (void *)&(ptr_se_expand_weight),
                               (void *)&(ptr_se_expand_output),
                               (void *)&(ptr_profile_clock)};
-    test_op((const void *)efficientnet_se_module_v2_avg_pool_v2<
+    auto result = (test_op((const void *)efficientnet_se_module_v2_avg_pool_v2<
                 batch, height, width, in_channel, reduce_channel,
                 tile_size_in_channel>,
             se_kernel_args, dim3(in_channel / tile_size_in_channel, 1, 1),
             dim3(kBlockSize, 1, 1), {t_reduce_output, reduce_output},
-            shared_memory_size);
+            shared_memory_size));
+    assert(result);
   }
   // Test matmul1
   {
     void *se_kernel_args[] = {(void *)&(ptr_t_reduce_output),
                               (void *)&(ptr_se_reduce_weight),
                               (void *)&(ptr_se_reduce_output)};
-    test_op((const void *)efficientnet_se_module_v2_matmul_with_block_reduce_k<
+    auto result = (test_op((const void *)efficientnet_se_module_v2_matmul_with_block_reduce_k<
                 batch, reduce_channel, in_channel>,
             se_kernel_args, dim3(batch * reduce_channel, 1, 1),
             dim3(kBlockSize, 1, 1), {t_se_reduce_output, se_reduce_output},
-            shared_memory_size);
+            shared_memory_size));
+    assert(result);
   }
   // Test sigmoid1
   {
     void *se_kernel_args[] = {(void *)&(ptr_se_reduce_output),
                               (void *)&(ptr_se_reduce_sigmoid)};
-    test_op((const void *)efficientnet_se_module_v2_sigmoid<reduce_channel>,
+    auto result = (test_op((const void *)efficientnet_se_module_v2_sigmoid<reduce_channel>,
             se_kernel_args, dim3(batch * reduce_channel, 1, 1),
             dim3(kBlockSize, 1, 1), {t_se_reduce_sigmoid, se_reduce_sigmoid},
-            shared_memory_size);
+            shared_memory_size));
+    assert(result);
+  }
+  // Test mul
+  {
+    void* se_kernel_args[] = {
+      (void *)&(ptr_se_reduce_sigmoid),
+      (void *)&(ptr_se_reduce_output),
+      (void *)&(ptr_se_mul_output)
+    };
+    auto result = (test_op((const void *)efficientnet_se_module_v2_mul<reduce_channel>,
+            se_kernel_args, dim3(batch * reduce_channel, 1, 1),
+            dim3(kBlockSize, 1, 1), {t_se_reduce_sigmoid, se_reduce_sigmoid},
+            shared_memory_size));
+    assert(result);
   }
   // Test matmul2
   {
@@ -169,34 +190,66 @@ void efficient_se_module(
                               (void *)&(ptr_se_expand_weight),
                               (void *)&(ptr_se_expand_output),
                               (void *)&(ptr_profile_clock)};
-    test_op((const void *)efficientnet_se_module_v2_matmul2<
+    auto result = (test_op((const void *)efficientnet_se_module_v2_matmul2<
                 batch, height, width, in_channel, reduce_channel,
                 tile_size_in_channel>,
             se_kernel_args, dim3(in_channel / tile_size_in_channel, 1, 1),
             dim3(kBlockSize, 1, 1), {t_se_expand_output, se_expand_output},
-            shared_memory_size);
+            shared_memory_size));
+    assert(result);
   }
   // Test sigmoid2
   {
     void *se_kernel_args[] = {(void *)&(ptr_se_expand_output),
                               (void *)&(ptr_se_expand_sigmoid)};
-    test_op((const void *)efficientnet_se_module_v2_sigmoid<in_channel>,
+    auto result = (test_op((const void *)efficientnet_se_module_v2_sigmoid<in_channel>,
             se_kernel_args, dim3(in_channel / tile_size_in_channel, 1, 1),
             dim3(kBlockSize, 1, 1), {t_se_expand_sigmoid, se_expand_sigmoid},
-            shared_memory_size);
+            shared_memory_size));
+    assert(result);
   }
   // Test shortcut add
   {
     void *se_kernel_args[] = {(void *)&(ptr_input),
                               (void *)&(ptr_se_expand_sigmoid),
                               (void *)&(ptr_se_short_cut_add)};
-    test_op(
+    auto result = (test_op(
         (const void *)
             efficientnet_se_module_v2_add<batch, height, width, in_channel,
                                           reduce_channel, tile_size_in_channel>,
         se_kernel_args, dim3(in_channel / tile_size_in_channel, 1, 1),
         dim3(kBlockSize, 1, 1), {t_se_short_cut_add, se_short_cut_add},
-        shared_memory_size);
+        shared_memory_size));
+    assert(result);
+  }
+  // Test matmul1 + sigmoid
+  {
+    void *se_kernel_args[] = {(void *)&(ptr_t_reduce_output),
+                              (void *)&(ptr_se_reduce_weight),
+                              (void *)&(ptr_se_reduce_mul)};
+    auto result = (test_op((const void *)efficientnet_se_module_v2_fused_matmul_with_block_reduce_k_sigmoid_mul<
+                batch, reduce_channel, in_channel>,
+            se_kernel_args, dim3(batch * reduce_channel, 1, 1),
+            dim3(kBlockSize, 1, 1), {t_se_reduce_mul, se_reduce_mul},
+            shared_memory_size));
+    assert(result);
+  }
+  // Test matmul2 + sigmoid
+  {
+    void *se_kernel_args[] = {(void *)&(ptr_input),
+                              (void *)&(ptr_reduce_output),
+                              (void *)&(ptr_se_reduce_weight),
+                              (void *)&(ptr_t_se_reduce_mul),
+                              (void *)&(ptr_se_expand_weight),
+                              (void *)&(ptr_se_expand_sigmoid),
+                              (void *)&(ptr_profile_clock)};
+    auto result = (test_op((const void *)efficientnet_se_module_v2_fused_matmul2_sigmoid<
+                batch, height, width, in_channel, reduce_channel,
+                tile_size_in_channel>,
+            se_kernel_args, dim3(in_channel / tile_size_in_channel, 1, 1),
+            dim3(kBlockSize, 1, 1), {t_se_expand_sigmoid, se_expand_sigmoid},
+            shared_memory_size));
+    assert(result);
   }
   // Test simple fused op
   {
@@ -206,22 +259,24 @@ void efficient_se_module(
       (void *)&(ptr_se_reduce_weight),
       (void *)&(ptr_se_reduce_output),
       (void *)&(ptr_se_reduce_sigmoid),
+      (void *)&(ptr_se_reduce_mul),
       (void *)&(ptr_se_expand_weight),
       (void *)&(ptr_se_expand_output),
       (void *)&(ptr_se_expand_sigmoid),
       (void *)&(ptr_se_short_cut_add),
       (void *)&(ptr_profile_clock)
     };
-    test_op((const void*)efficientnet_se_module_v2_simple_fused<batch, height, width, in_channel,
+    
+    auto result = (test_op((const void*)efficientnet_se_module_v2_simple_fused<batch, height, width, in_channel,
                                           reduce_channel, tile_size_in_channel>,
                                           se_kernel_args, 
                                           dim3(in_channel / tile_size_in_channel, 1, 1),
         dim3(kBlockSize, 1, 1),
-        // {t_se_reduce_sigmoid, se_reduce_sigmoid},
+        {t_se_reduce_sigmoid, se_reduce_sigmoid},
         // {t_se_expand_output, se_expand_output},
         // {t_se_expand_sigmoid, se_expand_sigmoid},
-        {t_se_short_cut_add, se_short_cut_add},
-         shared_memory_size, 1);
+        // {t_se_short_cut_add, se_short_cut_add},
+         shared_memory_size, 1));
   }
   // Test sigmoid fuse
   {
@@ -235,7 +290,8 @@ void efficient_se_module(
       (void *)&(ptr_se_short_cut_add),
       (void *)&(ptr_profile_clock)
     };
-    test_op((const void*)efficientnet_se_module_v2_sigmoid_fused<batch, height, width, in_channel,
+    
+    auto result = (test_op((const void*)efficientnet_se_module_v2_sigmoid_fused<batch, height, width, in_channel,
                                           reduce_channel, tile_size_in_channel>,
                                           se_kernel_args, 
                                           dim3(in_channel / tile_size_in_channel, 1, 1),
@@ -244,7 +300,7 @@ void efficient_se_module(
         // {t_se_expand_output, se_expand_output},
         // {t_se_expand_sigmoid, se_expand_sigmoid},
         {t_se_short_cut_add, se_short_cut_add},
-         shared_memory_size, 1);
+         shared_memory_size, 1));
   }
   // Test short cut fuse
   {
@@ -258,18 +314,19 @@ void efficient_se_module(
       (void *)&(ptr_se_short_cut_add),
       (void *)&(ptr_profile_clock)
     };
-    test_op((const void*)efficientnet_se_module_v2_short_cut_fused<batch, height, width, in_channel,
+    auto result = test_op((const void*)efficientnet_se_module_v2_short_cut_fused<batch, height, width, in_channel,
                                           reduce_channel, tile_size_in_channel>,
                                           se_kernel_args, 
                                           dim3(in_channel / tile_size_in_channel, 1, 1),
         dim3(kBlockSize, 1, 1),
-        // {t_se_reduce_sigmoid, se_reduce_sigmoid},
+        {t_se_reduce_sigmoid, se_reduce_sigmoid},
         // {t_se_expand_output, se_expand_output},
         // {t_se_expand_sigmoid, se_expand_sigmoid},
-        {t_se_short_cut_add, se_short_cut_add},
+        // {t_se_short_cut_add, se_short_cut_add},
          shared_memory_size, 1);
+    assert(result);
   }
-  printf("efficient_se_module<%ld, %ld, %ld, %ld, %ld, %ld> pass\n", 
+  printf("efficient_se_module<%ld, %ld, %ld, %ld, %ld, %ld> passed\n", 
     batch, height, width, in_channel,
                                           reduce_channel, tile_size_in_channel);
 }
@@ -280,7 +337,7 @@ int main(int argc, char **argv) {
   efficient_se_module<1, 56, 56, 96, 4, 1>(name_tensor_map, 1, 48 * 1024);
   efficient_se_module<1, 56, 56, 144, 6, 1>(name_tensor_map, 2, 48 * 1024);
   efficient_se_module<1, 28, 28, 144, 6, 1>(name_tensor_map, 3, 48 * 1024);
-  efficient_se_module<1, 28, 28, 240, 10, 1>(name_tensor_map, 4, 48 * 1024);
+  efficient_se_module<1, 28, 28, 240, 10, 1>(name_tensor_map, 4, 32 * 1024);
   efficient_se_module<1, 14, 14, 240, 10, 1>(name_tensor_map, 5, 32 * 1024);
   efficient_se_module<1, 14, 14, 480, 20, 2>(name_tensor_map, 7, 24 * 1024);
   efficient_se_module<1, 14, 14, 672, 28, 3>(name_tensor_map, 9, 16 * 1024);

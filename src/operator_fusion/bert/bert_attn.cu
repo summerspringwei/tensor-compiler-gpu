@@ -26,7 +26,6 @@ void init_values(half *input, half *weight1, half *output) {
 }
 
 
-
 int main(){
 	const int input_size=98304;	half *input = new half[input_size];
 	const int weight_qkv_size=768*768*3;	half *weight_qkv = new half[weight_qkv_size];
