@@ -76,3 +76,21 @@ void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, int 
   printf("%s\n", output_buff);
   printf("my_compare error_cnt %d, total %d, error ratio %.3f\n", error_cnt, num_elements, ((float)error_cnt) / ((float)num_elements));
 }
+
+torch::Tensor load_tensor(std::string filename){
+  std::ifstream input(filename, std::ios::binary);
+  std::vector<char> bytes(
+      (std::istreambuf_iterator<char>(input)),
+      (std::istreambuf_iterator<char>()));
+  input.close();
+
+  torch::IValue x = torch::pickle_load(bytes);
+  torch::Tensor tensor = x.toTensor();
+  // printf("In torch_utils.cpp, tensor.dtype() %d, \n", tensor.dtype());
+  std::stringstream ss;
+  ss << "In torch_utils.cpp:91, tensor.dtype() " << tensor.dtype() << " tensor.sizes(): ";
+  for(auto s: tensor.sizes()){
+    ss << s << " ";
+  }ss << "\n";
+  return tensor;
+}
