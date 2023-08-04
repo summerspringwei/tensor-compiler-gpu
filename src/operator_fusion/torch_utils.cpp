@@ -77,12 +77,44 @@ void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, int 
   printf("my_compare error_cnt %d, total %d, error ratio %.3f\n", error_cnt, num_elements, ((float)error_cnt) / ((float)num_elements));
 }
 
-torch::Tensor load_tensor(std::string filename){
-  std::ifstream input(filename, std::ios::binary);
-  std::vector<char> bytes(
-      (std::istreambuf_iterator<char>(input)),
-      (std::istreambuf_iterator<char>()));
-  input.close();
+std::vector<char> readFile(const char* filename)
+{
+    // open the file:
+    std::ifstream file(filename, std::ios::binary);
+
+    // Stop eating new lines in binary mode!!!
+    file.unsetf(std::ios::skipws);
+
+    // get its size:
+    std::streampos fileSize;
+
+    file.seekg(0, std::ios::end);
+    fileSize = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    // reserve capacity
+    std::vector<char> vec;
+    vec.reserve(fileSize);
+
+    // read the data:
+    vec.insert(vec.begin(),
+               std::istream_iterator<char>(file),
+               std::istream_iterator<char>());
+
+    return vec;
+}
+
+torch::Tensor torch_load_tensor(std::string filename){
+  auto bytes = readFile(filename.c_str());
+  // std::ifstream input(filename, std::ios::binary);
+  // if(!input.good()){
+  //   printf("In torch_utils.cpp, torch_load_tensor, file %s not exist\n", filename.c_str());
+  //   exit(0);
+  // }
+  // std::vector<char> chars(
+  //     (std::istreambuf_iterator<char>(input)),
+  //     (std::istreambuf_iterator<char>()));
+  // input.close();
 
   torch::IValue x = torch::pickle_load(bytes);
   torch::Tensor tensor = x.toTensor();
@@ -94,3 +126,23 @@ torch::Tensor load_tensor(std::string filename){
   }ss << "\n";
   return tensor;
 }
+
+
+// torch::Tensor torch_load_model(std::string filename){
+//     // torch::jit::script::Module module;
+//   try {
+//     // Deserialize the ScriptModule from a file using torch::jit::load().
+//     auto module = torch::jit::load(filename);
+//     for (auto p :
+//        module.named_parameters(/*recurse=*/true)) {
+//     std::cout << p.name << " shape: ";
+//     for(auto s: p.value.sizes()){
+//       std::cout << s << " ";
+//     }std::cout<<std::endl;
+//   }
+//   }
+//   catch (const c10::Error& e) {
+//     std::cerr << "error loading the model\n";
+//   }
+//   return torch::ones({1,1}, options_fp16);;
+// }
