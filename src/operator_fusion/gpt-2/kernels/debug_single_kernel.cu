@@ -1,9 +1,7 @@
-#include "bert.h"
 #include <cooperative_groups.h>
 #include <cuda/pipeline>
 #include <mma.h>
 
-using namespace fuselage::experiments::networks::bert;
 __global__ void debug_feed_forward_fc1(half* __restrict__ feed_forward_fc1_weight,
                                 half* __restrict__ attn_fc_output,
                                 half* __restrict__ feed_forward_fc1_output){

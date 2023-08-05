@@ -418,6 +418,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
       break;
     case 5:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_qkv.type(), "bert_feed_forward_fc1", [&]{
+        // m=3072, n=384, k=768
         checkCuda(cudaLaunchCooperativeKernel((const void *)gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
                                        kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>, 
                                       dim3(96,1,1), dim3(128, 1,1), fused_feed_forward_fc1_kernel_args, fused_bert_shared_mem));

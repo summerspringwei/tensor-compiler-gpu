@@ -1,9 +1,10 @@
-#include "bert.h"
 #include <cooperative_groups.h>
 #include <cuda/pipeline>
 #include <mma.h>
 
-using namespace fuselage::experiments::networks::bert;
+#include "../gpt2-large.h"
+
+using namespace souffle::gpt2;
 
 template <int kWarpRowTiles, int kWarpColTiles, int M, int N, int K, int B>
 __global__ void gemm_three_stage(const half *__restrict__ matrix_a,

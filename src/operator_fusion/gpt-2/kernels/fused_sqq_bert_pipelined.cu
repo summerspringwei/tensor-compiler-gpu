@@ -1,4 +1,3 @@
-#include "bert.h"
 #include <cooperative_groups.h>
 #include <cuda/pipeline>
 #include <mma.h>
@@ -10,7 +9,6 @@
 // gemm_k4 shared memory 55296, blocks 72
 // gemm_k5 shared memory 93696, blocks 96
 // gemm_k6 shared memory 55296, blocks 72
-using namespace fuselage::experiments::networks::bert;
 
 __global__ void fused_sqq_bert_pipelined(const half *__restrict__ qkv_weight, 
                                 half *__restrict__ src,

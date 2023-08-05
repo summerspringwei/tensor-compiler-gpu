@@ -1,11 +1,6 @@
-
-#include "bert.h"
 #include <cooperative_groups.h>
 #include <cuda/pipeline>
 #include <mma.h>
-
-using namespace fuselage::experiments::networks::bert;
-
 
 // qkv matmul shared memory: 87552, blocks 96
 // gemm_k2 matmul shared memory: 149504, blocks 108

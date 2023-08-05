@@ -9,17 +9,16 @@
 #include <cuda_runtime.h>
 #include <mma.h>
 
-#include "kernels/bert.h"
 #include "torch/all.h"
-#include "kernels/gemm.cu"
 
-#include "npy.hpp"
+#include "gpt2-large.h"
+#include "kernels/gemm.cu"
 
 #include "../../cuda_utils.h"
 #include "../../utils.h"
 #include "../torch_utils.h"
 
-using namespace fuselage::experiments::networks::bert;
+using namespace souffle::gpt2;
 /* This bert is based on the implementation of Qianqi Sun*/
 
 template <int64_t batch_size, int64_t num_heads, int64_t max_seq_length,
@@ -298,34 +297,34 @@ float test_bert_attn(int round_cout = 1, int loop = 1, int func_id = 0) {
       (void *)&(ptr_attn_profile_clock),
   };
   const size_t fused_bert_shared_mem = 108 * 1024;
-  checkCuda(cudaFuncSetAttribute(
-      (void *)fused_sqq_bert,
-      cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-      fused_bert_shared_mem));
-  checkCuda(cudaFuncSetAttribute(
-      (void *)fused_sqq_bert_pipelined,
-      cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-      fused_bert_shared_mem));
-  checkCuda(cudaFuncSetAttribute(
-      (void *)fused_sqq_bert_pipelined_v2,
-      cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-      fused_bert_shared_mem));
-  checkCuda(cudaFuncSetAttribute(
-      (void *)fused_sqq_feedforward_pipelined,
-      cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-      fused_bert_shared_mem));
-  checkCuda(cudaFuncSetAttribute(
-      (void *)fused_sqq_bert_attn,
-      cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-      fused_bert_shared_mem));
-  checkCuda(cudaFuncSetAttribute(
-      (void *)fused_sqq_feedforward_pipelined_v2,
-      cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-      fused_bert_shared_mem));
-  checkCuda(cudaFuncSetAttribute(
-      (void *)fused_sqq_bert_query_key_softmax,
-      cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-      fused_bert_shared_mem));
+//   checkCuda(cudaFuncSetAttribute(
+//       (void *)fused_sqq_bert,
+//       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+//       fused_bert_shared_mem));
+//   checkCuda(cudaFuncSetAttribute(
+//       (void *)fused_sqq_bert_pipelined,
+//       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+//       fused_bert_shared_mem));
+//   checkCuda(cudaFuncSetAttribute(
+//       (void *)fused_sqq_bert_pipelined_v2,
+//       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+//       fused_bert_shared_mem));
+//   checkCuda(cudaFuncSetAttribute(
+//       (void *)fused_sqq_feedforward_pipelined,
+//       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+//       fused_bert_shared_mem));
+//   checkCuda(cudaFuncSetAttribute(
+//       (void *)fused_sqq_bert_attn,
+//       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+//       fused_bert_shared_mem));
+//   checkCuda(cudaFuncSetAttribute(
+//       (void *)fused_sqq_feedforward_pipelined_v2,
+//       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+//       fused_bert_shared_mem));
+//   checkCuda(cudaFuncSetAttribute(
+//       (void *)fused_sqq_bert_query_key_softmax,
+//       cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+//       fused_bert_shared_mem));
 
   std::function<void()> func_attn_qkv;
   {
@@ -426,30 +425,34 @@ float test_bert_attn(int round_cout = 1, int loop = 1, int func_id = 0) {
 //       gemm_k4_shared_mem));
   }
 
+  std::function<void()> fused_feed_forward_fc1;
   {
   // 4.5 feed_forward_fc1 inputA:(768,3072), inputB: (384,768), output:(384,3072)
   void *fused_feed_forward_fc1_kernel_args[] = {
       (void *)&(ptr_feed_forward_fc1_weight), (void *)&(ptr_attn_fc_output),
       (void *)&(ptr_feed_forward_fc1_output)};
-  const int gemm_k5_blocks =
-      (d_intermedia / (kBlockRowWarps * kGemmK5WarpRowTiles * kWmmaM)) *
-      (batch_size * max_seq_length /
-       (kBlockColWarps * kGemmK5WarpColTiles * kWmmaN));
-  const int gemm_k5_shared_mem =
+  const int feed_forward_fc1_shared_mem =
       (kStage *
        (kChunkK * kWmmaK *
-            (kBlockRowWarps * kGemmK5WarpRowTiles * kWmmaM + kInputSkew) +
-        kBlockColWarps * kGemmK5WarpColTiles * kWmmaN *
+            (kBlockRowWarps * FeedForwardFC1Params::kBlockRowTiles * kWmmaM + kInputSkew) +
+        kBlockColWarps * FeedForwardFC1Params::kBlockColTiles * kWmmaN *
             (kChunkK * kWmmaK + kInputSkew))) *
       sizeof(half);
-  printf("gemm_k5 shared memory %d, blocks %d\n", gemm_k5_shared_mem,
-         gemm_k5_blocks);
+  printf("gemm_k5 shared memory %d KB\n", feed_forward_fc1_shared_mem / 1024);
   checkCuda(cudaFuncSetAttribute(
       (const void *)
-          gemm_three_stage<kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
+          gemm_three_stage<FeedForwardFC1Params::kWarpRowTiles, FeedForwardFC1Params::kWarpColTiles,
                            kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>,
-      cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-      fused_bert_shared_mem));
+        cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+        fused_bert_shared_mem));
+      fused_feed_forward_fc1 = [&]() {
+       checkCuda(cudaLaunchCooperativeKernel(
+                (const void *)
+          gemm_three_stage<FeedForwardFC1Params::kBlockRowTiles, FeedForwardFC1Params::kBlockColTiles,
+                        kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>,
+                dim3(FeedForwardFC1Params::kGridBlocks, 1, 1), dim3(FeedForwardFC1Params::kBlockThreads, 1, 1),
+                fused_feed_forward_fc1_kernel_args, fused_bert_shared_mem));
+      };
   }
 
   {
@@ -564,14 +567,7 @@ float test_bert_attn(int round_cout = 1, int loop = 1, int func_id = 0) {
       break;
     case 5:
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-          output_qkv.type(), "bert_feed_forward_fc1", [&] {
-            checkCuda(cudaLaunchCooperativeKernel(
-                (const void *)gemm_three_stage<
-                    kGemmK5WarpRowTiles, kGemmK5WarpColTiles,
-                    kHiddenSize * kHiddenDim, kSeqLength, kHiddenDim, 1>,
-                dim3(96, 1, 1), dim3(128, 1, 1),
-                fused_feed_forward_fc1_kernel_args, fused_bert_shared_mem));
-          });
+          output_qkv.type(), "bert_feed_forward_fc1", fused_feed_forward_fc1);
       break;
     case 6:
     //   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
@@ -610,13 +606,13 @@ float test_bert_attn(int round_cout = 1, int loop = 1, int func_id = 0) {
     //       });
       break;
     case 10:
-      AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-          output_qkv.type(), "debug_feed_forward_fc1", [&] {
-            checkCuda(cudaLaunchCooperativeKernel(
-                (const void *)debug_feed_forward_fc1, dim3(96, 1, 1),
-                dim3(128, 1, 1), fused_feed_forward_fc1_kernel_args,
-                fused_bert_shared_mem));
-          });
+    //   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+    //       output_qkv.type(), "debug_feed_forward_fc1", [&] {
+    //         checkCuda(cudaLaunchCooperativeKernel(
+    //             (const void *)debug_feed_forward_fc1, dim3(96, 1, 1),
+    //             dim3(128, 1, 1), fused_feed_forward_fc1_kernel_args,
+    //             fused_bert_shared_mem));
+    //       });
       break;
     case 11:
     //   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
