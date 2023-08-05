@@ -8,17 +8,17 @@
 int main(int argc, char* argv[]){
     // Load weight
     std::string folder = "/home/xiachunwei/Projects/tensor-compiler-gpu/src/operator_fusion/gpt-2/";
-    // torch::Tensor attn_fc_weight =
-    //   torch_load_tensor(folder + "gpt2-torch-data/attn_c_proj.pt")
-    //       .to(torch::kCUDA)
-    //       .to(torch::kHalf);
-    torch::Tensor attn_fc_weight = torch::ones({5120, 1280}, torch::kHalf).to(torch::kCUDA);
+    torch::Tensor attn_fc_weight =
+      torch_load_tensor(folder + "gpt2-torch-data/attn_c_proj.pt")
+          .to(torch::kCUDA)
+          .to(torch::kHalf);
+    // torch::Tensor attn_fc_weight = torch::ones({5120, 1280}, torch::kHalf).to(torch::kCUDA);
     const int out_dim = attn_fc_weight.sizes()[0];
     const int reduce_dim = attn_fc_weight.sizes()[1];
     const int batch_size = 1;
-    // auto src = torch::ones({batch_size, reduce_dim}, torch::kHalf).to(torch::kCUDA);
-    auto src = torch::nn::init::uniform_(
-      torch::randn({batch_size, reduce_dim}, options_fp16), 0, 1).to(torch::kCUDA);
+    auto src = torch::ones({batch_size, reduce_dim}, torch::kHalf).to(torch::kCUDA);
+    // auto src = torch::nn::init::uniform_(
+    //   torch::randn({batch_size, reduce_dim}, options_fp16), 0, 1).to(torch::kCUDA);
     auto output = torch::empty({batch_size, out_dim}, options_fp16).to(torch::kCUDA);
     
     // Declare pointers

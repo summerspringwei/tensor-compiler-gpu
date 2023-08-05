@@ -19,5 +19,6 @@ int main(int argc, char* argv[])
     std::vector<char> f = get_the_bytes(std::string(argv[1]));
     torch::IValue x = torch::pickle_load(f);
     torch::Tensor tensor = x.toTensor();
-    std::cout << tensor;
+    // std::cout << tensor;
+    torch::print(tensor);
 }

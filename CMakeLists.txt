@@ -91,6 +91,7 @@ add_executable(swin_fused_feed_forward src/operator_fusion/swin_transformer/torc
 add_executable(test_load_tensor src/operator_fusion/gpt-2/test_load_tensor.cpp)
 add_executable(torch_gpt src/operator_fusion/gpt-2/torch_gpt.cu)
 add_executable(vector_matrix_mul_main src/operator_fusion/gpt-2/vector_matrix_mul_main.cu)
+
 # LSTM
 # set_target_properties(lstm_wavefront_magic PROPERTIES CUDA_ARCHITECTURES "70;75;80")
 add_executable(lstm_main src/operator_fusion/lstm/lstm_main.cu)

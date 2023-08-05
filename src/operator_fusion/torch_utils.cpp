@@ -105,20 +105,19 @@ std::vector<char> readFile(const char* filename)
 }
 
 torch::Tensor torch_load_tensor(std::string filename){
-  auto bytes = readFile(filename.c_str());
-  // std::ifstream input(filename, std::ios::binary);
-  // if(!input.good()){
-  //   printf("In torch_utils.cpp, torch_load_tensor, file %s not exist\n", filename.c_str());
-  //   exit(0);
-  // }
-  // std::vector<char> chars(
-  //     (std::istreambuf_iterator<char>(input)),
-  //     (std::istreambuf_iterator<char>()));
-  // input.close();
+  
+  std::ifstream input(filename, std::ios::binary);
+  if(!input.good()){
+    printf("In torch_utils.cpp, torch_load_tensor, file %s not exist\n", filename.c_str());
+    exit(0);
+  }
+  std::vector<char> bytes(
+      (std::istreambuf_iterator<char>(input)),
+      (std::istreambuf_iterator<char>()));
+  input.close();
 
   torch::IValue x = torch::pickle_load(bytes);
   torch::Tensor tensor = x.toTensor();
-  // printf("In torch_utils.cpp, tensor.dtype() %d, \n", tensor.dtype());
   std::stringstream ss;
   ss << "In torch_utils.cpp:91, tensor.dtype() " << tensor.dtype() << " tensor.sizes(): ";
   for(auto s: tensor.sizes()){
