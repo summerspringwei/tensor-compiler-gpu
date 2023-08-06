@@ -20,7 +20,7 @@ enum GPTGEMMParams {
     kWmmaK = 16,
     kInputSkew = 8,
     kAccSkew = 8,
-    kChunkK = 4,
+    kChunkK = 2,
     kStage = 3,
     kBlockRowWarps = 2,
     kBlockColWarps = 2,
