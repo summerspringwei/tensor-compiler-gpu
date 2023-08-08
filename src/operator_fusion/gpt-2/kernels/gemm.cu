@@ -5,6 +5,8 @@
 #include "../gpt2-large.h"
 // #include "fused_sqq_bert.cu"
 #include "gemm_three_stages.h"
+#include "gemm_three_stages_limited_blocks.h"
+#include "gemm_k6.cu"
 // #include "fused_sqq_feedforward.cu"
 // #include "fused_sqq_bert_pipelined.cu"
 // #include "fused_sqq_bert_pipelined_v2.cu"

@@ -37,7 +37,7 @@ namespace FeedForwardFC1Params{
         KGEMMFFK = 1280,
 
         kWarpRowTiles = 4,
-        kWarpColTiles = 2,
+        kWarpColTiles = 3,
         
         kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
         kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
@@ -45,6 +45,38 @@ namespace FeedForwardFC1Params{
         kGridBlocks = KGEMMFFM / kBlockRowTiles / kWmmaM * KGEMMFFN / kBlockColTiles / kWmmaN,
     };
 
-} // namespace Large
+} // namespace FeedForwardFC1Params
+
+namespace FeedForwardFC1LimitedBlocksParams{
+    enum FC1Params {
+        // M=5120, N=384, K=1280
+        // ctm_m=64, cta_n=128, cta_k=32
+        KGEMMFFM = 5120,
+        KGEMMFFN = 384,
+        KGEMMFFK = 1280,
+
+        kWarpRowTiles = 4,
+        kWarpColTiles = 2,
+        kMTiles = 2,
+        kNTiles = 1,
+        
+        kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
+        kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
+        kBlockColTiles = kBlockColWarps * kWarpColTiles,
+        kGridBlocks = (KGEMMFFM / kBlockRowTiles / kWmmaM / kMTiles) * 
+            (KGEMMFFN / kBlockColTiles / kWmmaN / kNTiles),
+    };
+
+} // namespace FeedForwardFC1LimitedBlocksParams
+
+namespace FeedForwardFC2Params{
+    enum FC2Params {
+        kGemmK6BlockRowTiles = 4,
+        kGemmK6BlockColTiles = 4,
+        kGemmK6BlockSliceKTiles = 4,
+    };
+
+} // namespace FeedForwardFC2Params
+
 } // namespace gpt2
 } // namespace souffle

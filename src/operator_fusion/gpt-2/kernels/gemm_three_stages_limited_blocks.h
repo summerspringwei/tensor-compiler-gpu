@@ -5,9 +5,11 @@
 #include "../gpt2-large.h"
 
 using namespace souffle::gpt2;
-// Note: (K, M) * (K, N) -> (M, N)
-template <int kWarpRowTiles, int kWarpColTiles, int M, int N, int K, int B>
-__global__ void gemm_three_stage(const half *__restrict__ matrix_a,
+// Note: (K, M) * (N, K) -> (N, M)
+// Here, we tile along the M and N dimensions and use loops rather than blocks
+// to limit the number of blocks required to meet the constraint of global synchronization
+template <int kWarpRowTiles, int kWarpColTiles, int kMTiles, int kNTiles, int M, int N, int K, int B>
+__global__ void gemm_three_stage_limited_blocks(const half *__restrict__ matrix_a,
                                  const half *__restrict__ matrix_b,
                                  half *__restrict__ matrix_c) {
     using namespace nvcuda;
@@ -15,7 +17,7 @@ __global__ void gemm_three_stage(const half *__restrict__ matrix_a,
         kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
         kBlockColTiles = kBlockColWarps * kWarpColTiles,
     };
-
+    // 1. Declare shared memory
     extern __shared__ half all_shared_mem[];
 
     half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
@@ -42,7 +44,7 @@ __global__ void gemm_three_stage(const half *__restrict__ matrix_a,
         2 * kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew);
 
     acc_shared = all_shared_mem;
-
+    // Declare tensor core matrics
     nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::col_major>
         wmma_matrix_a[kWarpRowTiles];
@@ -52,16 +54,23 @@ __global__ void gemm_three_stage(const half *__restrict__ matrix_a,
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, kWmmaM, kWmmaN, kWmmaK,
                            half>
         wmma_accumulator[kWarpColTiles * kWarpRowTiles];
-
+    
+    // Tile the matrix to reduce the number of blocks required 
+    // to meet the constraint of global synchronization
+    for(int limit_tile_m = 0; limit_tile_m < kMTiles; ++ limit_tile_m){
+    for(int limit_tile_n=0; limit_tile_n < kNTiles; ++ limit_tile_n){
+    // 3. 
     const int row_warp_id = (threadIdx.x / kWarpSize) % kBlockRowWarps;
     const int col_warp_id = (threadIdx.x / kWarpSize) / kBlockRowWarps;
     const int batch_stride =
-        (N / kBlockColTiles / kWmmaN) * (M / kBlockRowTiles / kWmmaM);
+        ((N / kNTiles) / kBlockColTiles / kWmmaN) * ((M / kMTiles) / kBlockRowTiles / kWmmaM);
     const int batched_id = blockIdx.x / batch_stride;
     const int row_block_id =
-        blockIdx.x % batch_stride % (M / kBlockRowTiles / kWmmaM);
+        blockIdx.x % batch_stride % ((M / kMTiles) / kBlockRowTiles / kWmmaM) + 
+        limit_tile_m * ((M / kMTiles) / kBlockRowTiles / kWmmaM);
     const int col_block_id =
-        blockIdx.x % batch_stride / (M / kBlockRowTiles / kWmmaM);
+        blockIdx.x % batch_stride / ((M / kMTiles) / kBlockRowTiles / kWmmaM) + 
+        limit_tile_n * ((N / kNTiles) / kBlockColTiles / kWmmaN);
 
 #pragma unroll
     for (int col = 0; col < kWarpColTiles; ++col) {
@@ -311,5 +320,7 @@ __global__ void gemm_three_stage(const half *__restrict__ matrix_a,
     for (int i = 0; i < kBlockColTiles * kWmmaN / kStoreCColsPerIter; ++i) {
         *reinterpret_cast<float4 *>(c_dst_base + i * c_dst_stride) =
             *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
+    }
+    }
     }
 }
