@@ -80,7 +80,7 @@ class FeedForward {
         torch::matmul(input_tensor, feed_forward_fc1_weight);
     t_feed_forward_fc1_output += feed_forward_fc1_bias;
     // 2. relu
-    // t_feed_forward_fc1_activation_output = torch::relu(t_feed_forward_fc1_output);
+    t_feed_forward_fc1_output = torch::relu(t_feed_forward_fc1_output);
     // 3. fc2
     t_feed_forward_fc2_output =
         torch::matmul(t_feed_forward_fc1_output, feed_forward_fc2_weight);
@@ -161,8 +161,6 @@ class FeedForward {
             dim3(FeedForwardFC1LimitedBlocksParams::kBlockThreads, 1, 1),
             fused_feed_forward_fc1_kernel_args, feed_forward_fc1_shared_mem),
         __LINE__);
-    t_feed_forward_fc1_output =
-        torch::matmul(input_tensor, feed_forward_fc1_weight);
     cudaDeviceSynchronize();
   }
 
@@ -214,11 +212,11 @@ class FeedForward {
         (const void *)fused_feed_forwad_pipeline,
         cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
         fused_shared_memory));
-    checkCuda(cudaLaunchKernel(
-        (const void *)fused_feed_forwad_pipeline,
+    checkCuda(cudaLaunchCooperativeKernel((const void *)fused_feed_forwad_pipeline,
         dim3(fused_grid_blocks, 1, 1),
         dim3(FeedForwardFC1LimitedBlocksParams::kBlockThreads, 1, 1),
         fused_feedforward_kernel_args, fused_shared_memory));
+    cudaDeviceSynchronize();
   }
 
   void print() {
@@ -285,12 +283,12 @@ int main(int argc, char *argv[]) {
   std::string folder_path =
       "/home/xiachunwei/Projects/tensor-compiler-gpu/src/"
       "operator_fusion/gpt-2/";
-  torch::Tensor feed_forward_input_tensor =
-      torch::ones({384, 20 * 64}, torch::kCUDA).to(torch::kHalf);
 //   torch::Tensor feed_forward_input_tensor =
-//       torch_load_tensor(folder_path + "gpt2-torch-data/MLP_input_hidden_states.pt")
-//           .to(torch::kCUDA)
-//           .to(torch::kHalf);
+//       torch::ones({384, 20 * 64}, torch::kCUDA).to(torch::kHalf);
+  torch::Tensor feed_forward_input_tensor =
+      torch_load_tensor(folder_path + "gpt2-torch-data/MLP_input_hidden_states.pt")
+          .to(torch::kCUDA)
+          .to(torch::kHalf);
   FeedForward<1, 20, 384, 64, 5120> module_feed_forward(
       folder_path, feed_forward_input_tensor);
   module_feed_forward.torch_forward();

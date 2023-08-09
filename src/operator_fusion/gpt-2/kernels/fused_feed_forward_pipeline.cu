@@ -17,17 +17,10 @@ __global__ void fused_feed_forwad_pipeline(half* __restrict__ input_tensor,
     using namespace nvcuda;
     extern __shared__ half all_shared_mem[];
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
-    int clock_idx = 0;
-    unsigned int c = 0;
-    const int warpIdx = threadIdx.x >> 5;
     cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
 
     if(blockIdx.x < FeedForwardFC1LimitedBlocksParams::kGridBlocks){
         using namespace souffle::gpt2::FeedForwardFC1LimitedBlocksParams;
-        // const int kWarpRowTiles = FeedForwardFC1LimitedBlocksParams::kWarpRowTiles;
-        // const int kWarpColTiles = FeedForwardFC1LimitedBlocksParams::kWarpColTiles;
-        // const int kMTiles = FeedForwardFC1LimitedBlocksParams::kMTiles;
-        // const int kNTiles = FeedForwardFC1LimitedBlocksParams::kNTiles;
         const int M = FeedForwardFC1LimitedBlocksParams::KGEMMFFM;
         const int N = FeedForwardFC1LimitedBlocksParams::KGEMMFFN;
         const int K = FeedForwardFC1LimitedBlocksParams::KGEMMFFK;
@@ -311,7 +304,25 @@ __global__ void fused_feed_forwad_pipeline(half* __restrict__ input_tensor,
         }
 
         __syncthreads();
-
+        // Do activation (Relu)
+        // const int kLoadHalf2PerIter = sizeof(half2) / sizeof(half) * kBlockThreads;
+        // const int kLoadRowsPerIter = kBlockColTiles * kWmmaM / kLoadHalf2PerIter;
+        const int numWarp = FeedForwardFC1LimitedBlocksParams::kBlockThreads / warpSize;
+        const int warpIdx = threadIdx.x / warpSize;
+        const int laneIdx = threadIdx.x % 32;
+        const int vecLength = sizeof(half2) / sizeof(half);
+        // Each warp process one line
+        for(int iter=0; iter < kBlockColTiles * kWmmaN / numWarp; ++ iter){
+            const int offset = ((iter*numWarp) + warpIdx) * (kBlockRowTiles * kWmmaM + kAccSkew);
+            #pragma unroll
+            for(int warp_iter = 0; warp_iter < kBlockRowTiles * kWmmaM / warpSize / vecLength; ++warp_iter){
+                half2 ele = *(half2*)&(acc_shared[offset + (warp_iter * warpSize + laneIdx) * vecLength]);
+                if(ele.x < half(0.0)) ele.x = half(0.0);
+                if(ele.y < half(0.0)) ele.y = half(0.0);
+                ((half2*)&(acc_shared[offset + (warp_iter * warpSize + laneIdx) * vecLength]))[0] = ele;
+            }
+        }
+        __syncthreads();
         const int c_dst_stride = kStoreCColsPerIter * M;
         const int c_src_stride =
             kStoreCColsPerIter * (kBlockRowTiles * kWmmaM + kAccSkew);

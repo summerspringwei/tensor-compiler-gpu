@@ -6,7 +6,7 @@
  * We Launch less than kGridSize blocks, each block has kBlockSize threads.
 */
 #define kBlockSize 256
-#define kGridSize 168
+#define kGridSize 84 // The number of SM on RTX3090 is 84
 #include <stdio.h>
 #include <cuda_fp16.h>
 #include "../../../cuda_kernel_utils.h"
@@ -72,6 +72,74 @@ typedef struct __align__(16) {
 //     }
 // }
 
+
+// template<int64_t batch_size, int64_t reduce_dim, int64_t out_dim>
+__global__ void __launch_bounds__(kBlockSize) vector_matrix_mul_kernel(
+     half* __restrict__ input,  half* __restrict__ weight, half* __restrict__ output){
+    const int warpIdx = threadIdx.x / 32;
+    const int laneIdx = threadIdx.x % 32;
+    const int numWarp = kBlockSize / 32;
+    const int vectorLength = sizeof(float4) / sizeof(half);
+    half local_input[8]; 
+    half local_weight[8];
+    const int64_t batch_size=1;
+    const int64_t reduce_dim=1280;
+    const int64_t out_dim=5120;
+    // if((unsigned int)(&local_input) % 16 !=0 || (unsigned int)(&local_weight) % 16 !=0){
+    //     printf("local_input or local_weight is not aligned\n");
+    // }
+    // if((unsigned int)(&input) % 16 !=0 || (unsigned int)(&weight) % 16 !=0){
+    //     printf("input or weight is not aligned\n");
+    // }
+    // Iterate over batch_size
+    for(int64_t b = 0; b < batch_size; ++b){
+        // Iterate over out_dim
+        for(int64_t idx = 0; UPDIV(out_dim, kGridSize * numWarp); ++idx){
+            // Each warp reduce one reduce_dim
+            half2 local_sum(0, 0);
+            // half2 local_input[4];
+            // half2 local_weight[4];
+            const int64_t weight_row_idx = (idx * kGridSize * numWarp + warpIdx);
+            // Guard against over indexing
+            if (weight_row_idx >= out_dim) break;
+            # pragma unroll
+            for(int64_t k = 0; k < reduce_dim; k += (warpSize*vectorLength)){
+                const int64_t col_idx = k + laneIdx*vectorLength;
+                // Guard against over indexing
+                if(col_idx >= reduce_dim) break;
+                // if(blockIdx.x < 2){
+                //     printf("blockIdx.x %u, threadIdx %u, b: %ld, reduce_dim: %ld, idx:%ld, kGridSize: %d, numwarp: %d, warpIdx: %d, weight_row_idx: %ld, col_idx: %ld, input_addr: %ld, weight_addr: %ld\n", 
+                //         blockIdx.x, threadIdx.x,
+                //         b, reduce_dim,
+                //         idx, kGridSize, numWarp, warpIdx,
+                //         weight_row_idx, col_idx,
+                //         b * reduce_dim + col_idx, weight_row_idx * reduce_dim + col_idx);
+                // }
+                if(threadIdx.x * 8 < 1280){
+                    *(float4*)&local_input = *(float4*)&(input[threadIdx.x * 8]);
+                    *(float4*)&local_input = *(float4*)&(weight[threadIdx.x * 8]);
+                }
+                // *(float4*)&local_input = *(float4*)&(input[(b * reduce_dim + col_idx)]);
+                // *(float4*)&local_weight = *(float4*)&(weight[(weight_row_idx * reduce_dim + col_idx)]);
+                local_sum += __hmul2(half2(local_input[0], local_input[1]), half2(local_weight[0], local_weight[1]));
+                local_sum += __hmul2(half2(local_input[2], local_input[3]), half2(local_weight[2], local_weight[3]));
+                local_sum += __hmul2(half2(local_input[4], local_input[5]), half2(local_weight[4], local_weight[5]));
+                local_sum += __hmul2(half2(local_input[6], local_input[7]), half2(local_weight[6], local_weight[7]));
+                // local_sum += __hmul2(local_input[0], local_weight[0]);
+                // local_sum += __hmul2(local_input[1], local_weight[1]);
+                // local_sum += __hmul2(local_input[2], local_weight[2]);
+                // local_sum += __hmul2(local_input[3], local_weight[3]);
+            }
+            // Reduce within warp
+            local_sum = warpReduceSum(local_sum);
+            local_sum.x += local_sum.y;
+            // Write to output
+            if(laneIdx == 0){
+                output[b * out_dim + weight_row_idx] = local_sum.x;
+            }
+        }
+    }
+}
 
 template<int64_t batch_size, int64_t reduce_dim, int64_t out_dim>
 __global__ void __launch_bounds__(kBlockSize) vector_matrix_mul_kernel_half2(
