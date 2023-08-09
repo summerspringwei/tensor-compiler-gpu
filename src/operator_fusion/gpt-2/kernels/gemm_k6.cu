@@ -6,7 +6,7 @@
 
 using namespace souffle::gpt2;
 using namespace souffle::gpt2::FeedForwardFC2Params;
-
+// (k, n) * (m, k) = (m, n)
 __global__ void gemm_k6(const half *__restrict__ matrix_a,
                         const half *__restrict__ matrix_b,
                         half *__restrict__ matrix_c) {

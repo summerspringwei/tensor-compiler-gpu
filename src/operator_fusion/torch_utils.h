@@ -29,7 +29,13 @@ auto options_fp16 = torch::TensorOptions()
     .requires_grad(false);
 
 
-void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, int print_detail=0);
+enum CMPPrintLevel{
+ kPrintNone = 1,
+ kPrintDiff = 2,
+ kPrintAll = 3,
+};
+
+void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, CMPPrintLevel print_detail = kPrintNone);
 
 torch::Tensor torch_load_tensor(std::string file_name);
 

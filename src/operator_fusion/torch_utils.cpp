@@ -25,7 +25,7 @@ std::string idx2cordinate(uint64_t idx, std::vector<uint64_t>& acc_mul){
 }
 
 
-void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, int print_detail){
+void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, CMPPrintLevel print_detail){
   auto shape = a.sizes();
   const int dim = shape.size();
   std::vector<uint64_t> acc_mul(dim);
@@ -37,44 +37,40 @@ void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, int 
   char f_buff[32];
   size_t offset = 0;
   // std::stringstream ss;
-  int error_cnt = 0;
+  int64_t error_cnt = 0;
   auto num_elements = a.numel();
   auto reshaped_a = torch::reshape(a, {num_elements, });
   auto reshaped_b = torch::reshape(b, {num_elements, });
   for(uint64_t i=0; i<num_elements; ++i){
-    // auto x = reshaped_a[i].item().toHalf();
-    // auto y = reshaped_b[i].item().toHalf();
     auto x = reshaped_a[i].item().toFloat();
     auto y = reshaped_b[i].item().toFloat();
     auto left = std::abs(x - y);
     auto right = rotl * std::abs(x) + aotl;
-    printf("%f < %f ? %d\n", left, right, left < right);
+    // printf("%f < %f ? %d\n", left, right, left < right);
     if(left > right){
       error_cnt ++;
-      if(print_detail>=1){
+      if (error_cnt > 1000){
+        break;
+      }
+      if(print_detail>=kPrintDiff){
         auto str_coord = idx2cordinate(i, acc_mul);
         sprintf(output_buff+offset, "%s %s", "diff ", str_coord.c_str());offset+=(5+str_coord.length());
         sprintf(f_buff, "%f %f\n", x, y);
         sprintf(output_buff+offset, "%s", f_buff);offset+=(strlen(f_buff));
       }
     }else{
-      if(print_detail>=2){
+      if(print_detail>=kPrintAll){
         auto str_coord = idx2cordinate(i, acc_mul);
         sprintf(output_buff+offset, "%s %s", "same ", str_coord.c_str());offset+=(5+str_coord.length());
         sprintf(f_buff, "%f %f\n", x, y);
         sprintf(output_buff+offset, "%s", f_buff);offset+=(strlen(f_buff));
-        // ss << "same " << idx2cordinate(i, acc_mul);
-        // ss << x << " " << y << "\n";
-        // ss << __half2float(x) << " " << __half2float(y) << "\n";
-        // printf("same ");
-        // idx2cordinate(i, acc_mul);
-        // printf(" %f %f\n", __half2float(x), __half2float(y));
       }
     }
   }
   // printf("%s\n", ss.str().c_str());
   printf("%s\n", output_buff);
-  printf("my_compare error_cnt %d, total %d, error ratio %.3f\n", error_cnt, num_elements, ((float)error_cnt) / ((float)num_elements));
+  printf("my_compare error_cnt %ld, total %ld, error ratio %.3f\n", error_cnt, num_elements, ((float)error_cnt) / ((float)num_elements));
+  free(output_buff);
 }
 
 std::vector<char> readFile(const char* filename)
