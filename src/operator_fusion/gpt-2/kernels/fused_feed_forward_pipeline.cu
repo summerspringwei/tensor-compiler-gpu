@@ -6,7 +6,9 @@
 
 using namespace souffle::gpt2;
 
-__global__ void fused_feed_forwad_pipeline(half* __restrict__ input_tensor,
+__global__ void fused_feed_forwad_pipeline(
+        half* __restrict__ residual,
+        half* __restrict__ input_tensor,
         half eps, half gama, half beta,
         half* __restrict__ feed_forward_fc1_weight,
         half* __restrict__ feed_forward_fc1_output,
@@ -313,13 +315,14 @@ __global__ void fused_feed_forwad_pipeline(half* __restrict__ input_tensor,
         const int vecLength = sizeof(half2) / sizeof(half);
         // Each warp process one line
         for(int iter=0; iter < kBlockColTiles * kWmmaN / numWarp; ++ iter){
-            const int offset = ((iter*numWarp) + warpIdx) * (kBlockRowTiles * kWmmaM + kAccSkew);
+            const int offset = ((iter*numWarp) + warpIdx) * (kBlockRowTiles * kWmmaM + kAccSkew) + laneIdx * vecLength;
             #pragma unroll
             for(int warp_iter = 0; warp_iter < kBlockRowTiles * kWmmaM / warpSize / vecLength; ++warp_iter){
-                half2 ele = *(half2*)&(acc_shared[offset + (warp_iter * warpSize + laneIdx) * vecLength]);
+                const int idx = offset + (warp_iter * warpSize) * vecLength;
+                half2 ele = *(half2*)&(acc_shared[idx]);
                 if(ele.x < half(0.0)) ele.x = half(0.0);
                 if(ele.y < half(0.0)) ele.y = half(0.0);
-                ((half2*)&(acc_shared[offset + (warp_iter * warpSize + laneIdx) * vecLength]))[0] = ele;
+                ((half2*)&(acc_shared[idx]))[0] = ele;
             }
         }
         __syncthreads();
@@ -653,7 +656,7 @@ __global__ void fused_feed_forwad_pipeline(half* __restrict__ input_tensor,
             }
         }
         __syncthreads();
-
+        
         const int c_dst_stride = kStoreCColsPerIter * kHiddenDim;
         const int c_src_stride =
             kStoreCColsPerIter * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew);
@@ -664,17 +667,31 @@ __global__ void fused_feed_forwad_pipeline(half* __restrict__ input_tensor,
                             kHiddenDim +
                         (threadIdx.x & (kStoreCLanesPerRow - 1)) *
                             sizeof(float4) / sizeof(half);
+        half *c_residual_base = residual + row_block_id * kGemmK6BlockRowTiles * kWmmaM +
+                        (col_block_id * kGemmK6BlockColTiles * kWmmaN +
+                            threadIdx.x / kStoreCLanesPerRow) *
+                            kHiddenDim +
+                        (threadIdx.x & (kStoreCLanesPerRow - 1)) *
+                            sizeof(float4) / sizeof(half);
         half *c_src_base = acc_shared +
                         threadIdx.x / kStoreCLanesPerRow *
                             (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) +
                         (threadIdx.x & (kStoreCLanesPerRow - 1)) *
                             sizeof(float4) / sizeof(half);
-
+    half tmp_fc2[8];
+    half tmp_residule[8];
+    half out[8];
     #pragma unroll
         for (int i = 0; i < kGemmK6BlockColTiles * kWmmaN / kStoreCColsPerIter;
             ++i) {
-            *reinterpret_cast<float4 *>(c_dst_base + i * c_dst_stride) =
-                *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
+            // Short cut add here
+            *(float4*)tmp_fc2 = *(float4 *)(c_src_base + i * c_src_stride);
+            *(float4*)tmp_residule = *(float4 *)(c_residual_base + i * c_dst_stride);
+            *(half2*)&(out[0]) = __hadd2(*(half2*)&(tmp_fc2[0]), *(half2*)&(tmp_residule[0]));
+            *(half2*)&(out[2]) = __hadd2(*(half2*)&(tmp_fc2[2]), *(half2*)&(tmp_residule[2]));
+            *(half2*)&(out[4]) = __hadd2(*(half2*)&(tmp_fc2[4]), *(half2*)&(tmp_residule[4]));
+            *(half2*)&(out[6]) = __hadd2(*(half2*)&(tmp_fc2[6]), *(half2*)&(tmp_residule[6]));
+            *reinterpret_cast<float4 *>(c_dst_base + i * c_dst_stride) = *(float4*)&out;
         }
     }
 }

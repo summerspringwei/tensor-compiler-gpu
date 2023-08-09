@@ -63,6 +63,8 @@ class FeedForward {
   }
 
   void init_tensor_pointers() {
+    // Note, change here
+    ptr_residual = input_tensor.data_ptr<at::Half>();
     ptr_input_tensor = input_tensor.data_ptr<at::Half>();
     ptr_feed_forward_fc1_weight = feed_forward_fc1_weight.data_ptr<at::Half>();
     ptr_feed_forward_fc1_bias = feed_forward_fc1_bias.data_ptr<at::Half>();
@@ -75,6 +77,8 @@ class FeedForward {
   }
 
   void torch_forward() {
+    // 0. Layer norm
+    // t_input_layer_norm = torch::layer_norm(input_tensor, {d_model,});
     // 1. fc1
     t_feed_forward_fc1_output =
         torch::matmul(input_tensor, feed_forward_fc1_weight);
@@ -88,7 +92,7 @@ class FeedForward {
     // 4. short cut add
     t_feed_forward_fc2_short_cut_output = t_feed_forward_fc2_output + input_tensor;
     // 5. layer norm
-    t_feed_forward_fc2_layer_norm = torch::layer_norm(t_feed_forward_fc2_short_cut_output, {d_model,});
+    // t_feed_forward_fc2_layer_norm = torch::layer_norm(t_feed_forward_fc2_short_cut_output, {d_model,});
   }
 
   void souffle_forward() {
@@ -189,6 +193,7 @@ class FeedForward {
   void fused_feed_forward_pipelined() {
     void* fused_feedforward_kernel_args[] = {
         (void *)&(ptr_input_tensor),
+        (void *)&(ptr_input_tensor),
         (void *)&(eps), (void *)&(gama), (void *)&(beta),
         (void *)&(ptr_feed_forward_fc1_weight),
         (void *)&(ptr_feed_forward_fc1_output),
@@ -228,11 +233,12 @@ class FeedForward {
     torch::print(this->feed_forward_fc2_output);
     printf("\nt_feed_forward_fc2_output:");
     torch::print(this->t_feed_forward_fc2_output);
+    printf("\nfeed_forward_fc2_short_cut_output:");
+    torch::print(this->t_feed_forward_fc2_short_cut_output);
     my_compare(this->feed_forward_fc1_output, this->t_feed_forward_fc1_output, 1.0/16, 1.0/16, kPrintDiff);
-    my_compare(this->feed_forward_fc2_output, this->t_feed_forward_fc2_output, 1.0/16, 1.0/16, kPrintDiff);
+    // my_compare(this->feed_forward_fc2_output, this->t_feed_forward_fc2_output, 1.0/16, 1.0/16, kPrintDiff);
+    my_compare(this->feed_forward_fc2_output, this->t_feed_forward_fc2_short_cut_output, 1.0/16, 1.0/16, kPrintDiff);
   }
-
-  
 
   std::vector<at::Half *> get_pointers() {
     std::vector<at::Half *> pointers;
@@ -250,6 +256,7 @@ class FeedForward {
   std::string folder_path;
   torch::Tensor input_tensor;
   // Weights
+  torch::Tensor input_layer_norm;
   torch::Tensor feed_forward_fc1_weight;
   torch::Tensor feed_forward_fc1_bias;
   torch::Tensor feed_forward_fc1_output;
@@ -260,12 +267,14 @@ class FeedForward {
   torch::Tensor feed_forward_fc2_layer_norm_sum;
   torch::Tensor feed_forward_fc2_layer_norm_sum_x_2;
   // Torch output tensors
+  torch::Tensor t_input_layer_norm;
   torch::Tensor t_feed_forward_fc1_output;
   torch::Tensor t_feed_forward_fc1_activation_output;
   torch::Tensor t_feed_forward_fc2_output;
   torch::Tensor t_feed_forward_fc2_short_cut_output;
   torch::Tensor t_feed_forward_fc2_layer_norm;
   // Pointers
+  at::Half *ptr_residual;
   at::Half *ptr_input_tensor;
   at::Half *ptr_feed_forward_fc1_weight;
   at::Half *ptr_feed_forward_fc1_bias;
