@@ -119,6 +119,7 @@ torch::Tensor torch_load_tensor(std::string filename){
   for(auto s: tensor.sizes()){
     ss << s << " ";
   }ss << "\n";
+  printf("%s", ss.str().c_str());
   return tensor;
 }
 

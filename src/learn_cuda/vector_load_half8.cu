@@ -49,7 +49,7 @@ int main() {
 
     // Copy the result back from the device to the host
     cudaMemcpy(h_C, d_C, N * sizeof(half), cudaMemcpyDeviceToHost);
-    for(int i =0;i<10;++i){
+    for(int i =0;i<10;++i) {
         std::cout<<__half2float(h_C[i])<<std::endl;
     }
     // Clean up

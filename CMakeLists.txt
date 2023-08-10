@@ -7,7 +7,7 @@ set(CMAKE_CUDA_ARCHITECTURES "86")
 set(CUDA_ARCHITECTURES 86)
 project(tensor-compiler-gpu LANGUAGES C CXX CUDA)
 include(CheckLanguage)
-check_language(CUDA)
+# check_language(CUDA)
 
 # Declare variables
 
@@ -126,7 +126,7 @@ target_link_libraries(cudnn_infer_ops cudnn cuda cublas)
 target_link_libraries(tvm_nerf cudnn cuda cublas)
 
 
-# set(CMAKE_CUDA_FLAGS_DEBUG "-g -G -gencode")
+set(CMAKE_CUDA_FLAGS_DEBUG "-g -G -gencode arch=compute_86,code=sm_86")
 set_target_properties(torch_utils PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(torch_bert_attn PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(torch_bert_attn_sqq PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

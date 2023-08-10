@@ -15,7 +15,8 @@ __global__ void fused_feed_forwad_pipeline(
         half* __restrict__ feed_forward_fc2_weight,
         half* __restrict__ feed_forward_fc2_output,
         float* feed_forward_layernorm_sum,
-        float* feed_forward_layernorm_variance){
+        float* feed_forward_layernorm_variance,
+        half* __restrict__ next_attn_layer_norm){
     using namespace nvcuda;
     extern __shared__ half all_shared_mem[];
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
@@ -692,6 +693,8 @@ __global__ void fused_feed_forwad_pipeline(
             *(half2*)&(out[4]) = __hadd2(*(half2*)&(tmp_fc2[4]), *(half2*)&(tmp_residule[4]));
             *(half2*)&(out[6]) = __hadd2(*(half2*)&(tmp_fc2[6]), *(half2*)&(tmp_residule[6]));
             *reinterpret_cast<float4 *>(c_dst_base + i * c_dst_stride) = *(float4*)&out;
+            // Compute Layer Norm and save results to another buffer
+            
         }
     }
 }
