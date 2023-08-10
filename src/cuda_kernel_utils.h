@@ -44,4 +44,8 @@ __device__ __forceinline__ float sigmoid(float x){
     return (1.0f / (1+exp(-x)));
 }
 
+struct __align__(16) half8 {
+  half data[8];
+};
+
 #endif
