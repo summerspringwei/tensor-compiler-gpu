@@ -3,11 +3,11 @@ set(CUDA_HOME "/usr/local/cuda/")
 # set(CMAKE_C_COMPILER "${CUDA_HOME}/bin//nvcc")
 # set(CMAKE_CXX_COMPILER "${CUDA_HOME}/bin/nvcc")
 set(CMAKE_CUDA_COMPILER "${CUDA_HOME}/bin/nvcc")
-set(CMAKE_CUDA_ARCHITECTURES "86")
-set(CUDA_ARCHITECTURES 86)
+set(CMAKE_CUDA_ARCHITECTURES 80 86)
+set(CUDA_ARCHITECTURES 80 86)
 project(tensor-compiler-gpu LANGUAGES C CXX CUDA)
 include(CheckLanguage)
-# check_language(CUDA)
+check_language(CUDA)
 
 # Declare variables
 
@@ -15,18 +15,15 @@ set(CUDA_LIB "${CUDA_HOME}/lib64")
 
 set(CUDA_SEPARABLE_COMPILATION ON)
 
-set(TORCH_HOME "/home/xiachunwei/anaconda3/lib/python3.8/site-packages/torch" CACHE STRING "Set pytorch path")
-# set(TORCH_HOME "/usr/local/lib/miniconda3/envs/cloud-ai-lab/lib/python3.8/site-packages/torch" CACHE STRING "Set pytorch path")
-# set(CUTLASS_HOME "/home2/xiachunwei/Software/cutlass/")
-
+set(TORCH_HOME $ENV{$TORCH_HOME} CACHE STRING "Set pytorch path")
 
 message(${CUDA_LIB})
 message(${TORCH_HOME})
-find_package(CUDA REQUIRED)
+# find_package(CUDA REQUIRED)
 
 # Include directories
-include_directories("/usr/local/cuda-11.7/include")
-include_directories("/usr/local/cuda-11.7/targets/x86_64-linux/include")
+include_directories("${CUDA_HOME}/include")
+include_directories("${CUDA_HOME}/targets/x86_64-linux/include")
 include_directories("${TORCH_HOME}/include")
 include_directories("${TORCH_HOME}/include/torch/csrc/api/include")
 include_directories("third_party/libnpy/include")
@@ -126,7 +123,7 @@ target_link_libraries(cudnn_infer_ops cudnn cuda cublas)
 target_link_libraries(tvm_nerf cudnn cuda cublas)
 
 
-set(CMAKE_CUDA_FLAGS_DEBUG "-g -G -gencode arch=compute_86,code=sm_86")
+set(CMAKE_CUDA_FLAGS_DEBUG "-g -G -gencode arch=compute_86,code=sm_86 -gencode arch=compute_80,code=sm_80")
 set_target_properties(torch_utils PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(torch_bert_attn PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(torch_bert_attn_sqq PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

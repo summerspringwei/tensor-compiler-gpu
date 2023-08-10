@@ -694,7 +694,6 @@ __global__ void fused_feed_forwad_pipeline(
             *(half2*)&(out[6]) = __hadd2(*(half2*)&(tmp_fc2[6]), *(half2*)&(tmp_residule[6]));
             *reinterpret_cast<float4 *>(c_dst_base + i * c_dst_stride) = *(float4*)&out;
             // Compute Layer Norm and save results to another buffer
-            
         }
     }
 }
