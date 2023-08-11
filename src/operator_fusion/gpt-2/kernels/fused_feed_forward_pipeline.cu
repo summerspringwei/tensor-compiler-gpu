@@ -15,8 +15,8 @@ __global__ void fused_feed_forwad_pipeline(
         half* __restrict__ feed_forward_fc1_output,
         half* __restrict__ feed_forward_fc2_weight,
         half* __restrict__ feed_forward_fc2_output,
-        float* feed_forward_layernorm_sum,
-        float* feed_forward_layernorm_variance,
+        half* feed_forward_layernorm_sum,
+        half* feed_forward_layernorm_variance,
         half* __restrict__ next_attn_layer_norm){
     using namespace nvcuda;
     extern __shared__ half all_shared_mem[];
@@ -703,7 +703,84 @@ __global__ void fused_feed_forwad_pipeline(
     // 1. We first test naive layer norm without shared memory
     half* input_buf = all_shared_mem;
     if(blockIdx.x < FeedForwardFC1LimitedBlocksParams::kGridBlocks){
+        const int warpIdx = threadIdx.x / warpSize;
+        const int laneIdx = threadIdx.x % warpSize;
+        const int numWarp = blockDim.x * blockDim.y * blockDim.z / warpSize;
+        const int vecLength = sizeof(float4) / sizeof(half);
         // 1. Load data from global memory to shared memory
-        
+    for(int b=0; b<UPDIV(kBatchSize * kSeqLength, FeedForwardFC1LimitedBlocksParams::kGridBlocks * numWarp); ++b){
+        const int row_idx = (b * FeedForwardFC1LimitedBlocksParams::kGridBlocks + blockIdx.x) * numWarp + warpIdx;
+        const int shared_row_idx = warpIdx;
+        float thread_local_sum = 0;
+        half8 tmp;
+        if(row_idx < kBatchSize * kSeqLength){
+            // Iterate through the reduce dim for a warp
+            #pragma unroll
+            for(int k = 0; k<UPDIV(kHiddenDim, warpSize * vecLength); ++k){
+                const int col_idx = (k * warpSize + laneIdx) * vecLength;
+                half2 iter_sum(0.0, 0.0);
+                if(col_idx < kHiddenDim){
+                    *(float4*)&tmp = *(float4*)&(feed_forward_fc2_output[row_idx * kHiddenDim + col_idx]);
+                    *(float4*)&(input_buf[shared_row_idx * kHiddenDim + col_idx]) = *(float4*)&tmp;
+                    iter_sum += half2(tmp.data[0], tmp.data[1]);
+                    iter_sum += half2(tmp.data[2], tmp.data[3]);
+                    iter_sum += half2(tmp.data[4], tmp.data[5]);
+                    iter_sum += half2(tmp.data[6], tmp.data[7]);
+                    thread_local_sum +=  __half2float(iter_sum.x + iter_sum.y);
+                }
+            }
+            thread_local_sum = warpReduceSum(thread_local_sum);
+            if(laneIdx == 0){
+                feed_forward_layernorm_sum[row_idx] = __float2half(thread_local_sum / kHiddenDim);
+            }
+            __syncthreads();
+            // 2. Compute the variance
+            // Iterate through the reduce dim for a warp
+            half average = feed_forward_layernorm_sum[row_idx];
+            half2 h2_average(average, average);
+            thread_local_sum = 0;
+            for(int k = 0; k<UPDIV(kHiddenDim, warpSize * vecLength); ++k){
+                const int col_idx = (k * warpSize + laneIdx) * vecLength;
+                half2 iter_sum(0.0, 0.0);
+                #pragma unroll
+                if(col_idx < kHiddenDim){
+                    *(float4*)&tmp = *(float4*)&(input_buf[shared_row_idx * kHiddenDim + col_idx]);
+                    half2 sub = half2(tmp.data[0], tmp.data[1]) - h2_average;
+                    iter_sum += sub * sub;
+                    sub = half2(tmp.data[2], tmp.data[3]) - h2_average;
+                    iter_sum += sub * sub;
+                    sub = half2(tmp.data[4], tmp.data[5]) - h2_average;
+                    iter_sum += sub * sub;
+                    sub = half2(tmp.data[6], tmp.data[7]) - h2_average;
+                    iter_sum += sub * sub;
+                    thread_local_sum +=  __half2float(iter_sum.x + iter_sum.y);
+                }
+            }
+            thread_local_sum = warpReduceSum(thread_local_sum);
+            if(laneIdx == 0){
+                feed_forward_layernorm_variance[row_idx] =  __float2half(sqrtf(thread_local_sum / kHiddenDim + __half2float(eps))) ;
+            }
+            __syncthreads();
+            // 3. Compute the layer norm
+            half8 tmp;
+            half variance = feed_forward_layernorm_variance[row_idx];
+            half2 h2_variance(variance, variance);
+            thread_local_sum = 0;
+            #pragma unroll
+            for(int k = 0; k<UPDIV(kHiddenDim, warpSize * vecLength); ++k){
+                const int col_idx = (k * warpSize + laneIdx) * vecLength;
+                half2 iter_sum(0.0, 0.0);
+                if(col_idx < kHiddenDim){
+                    *(float4*)&tmp = *(float4*)&(input_buf[shared_row_idx * kHiddenDim + col_idx]);
+                    half8 result;
+                    *(half2*)&(result.data[0]) = (half2(tmp.data[0], tmp.data[1]) - h2_average) / h2_variance * half2(gama, gama) + half2(beta, beta);
+                    *(half2*)&(result.data[2]) = (half2(tmp.data[2], tmp.data[3]) - h2_average) / h2_variance * half2(gama, gama) + half2(beta, beta);
+                    *(half2*)&(result.data[4]) = (half2(tmp.data[4], tmp.data[5]) - h2_average) / h2_variance * half2(gama, gama) + half2(beta, beta);
+                    *(half2*)&(result.data[6]) = (half2(tmp.data[6], tmp.data[7]) - h2_average) / h2_variance * half2(gama, gama) + half2(beta, beta);
+                    *(float4*)&(next_attn_layer_norm[row_idx * kHiddenDim + col_idx]) = *(float4*)&result;
+                }
+            }
+        }
+    }
     }
 }

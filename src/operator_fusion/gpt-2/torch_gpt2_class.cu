@@ -105,7 +105,7 @@ class FeedForward {
     // fc1();
     // fc2();
     fused_feed_forward_pipelined();
-    layer_norm();
+    // layer_norm();
   }
 
   void fc1() {
@@ -207,13 +207,20 @@ class FeedForward {
         (void*)&(ptr_feed_forward_fc2_layer_norm_sum_x_2),
         (void*)&(ptr_next_attn_layer_norm_output),
     };
+    // checkCuda(cudaLaunchKernel(
+    //     (const void*)layer_norm_v1<384, 1280>, dim3(kNumberSM, 1, 1),
+    //     dim3(kElementwiseBlockThreads, 1, 1), kernel_args));
+    // cudaDeviceSynchronize();
+    // checkCuda(cudaLaunchKernel(
+    //     (const void*)layer_norm_v2<384, 1280>, dim3(kNumberSM, 1, 1),
+    //     dim3(kElementwiseBlockThreads, 1, 1), kernel_args));
+    checkCuda(cudaFuncSetAttribute(
+        (const void*)layer_norm_v3<384, 1280>,
+        cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+        FeedForwardFC1LimitedBlocksParams::kSharedMemory));
     checkCuda(cudaLaunchKernel(
-        (const void*)layer_norm_v1<384, 1280>, dim3(kNumberSM, 1, 1),
-        dim3(kElementwiseBlockThreads, 1, 1), kernel_args));
-    cudaDeviceSynchronize();
-    checkCuda(cudaLaunchKernel(
-        (const void*)layer_norm_v2<384, 1280>, dim3(kNumberSM, 1, 1),
-        dim3(kElementwiseBlockThreads, 1, 1), kernel_args));
+        (const void*)layer_norm_v3<384, 1280>, dim3(kNumberSM, 1, 1),
+        dim3(kElementwiseBlockThreads, 1, 1), kernel_args, FeedForwardFC1LimitedBlocksParams::kSharedMemory));
     cudaDeviceSynchronize();
   }
 
