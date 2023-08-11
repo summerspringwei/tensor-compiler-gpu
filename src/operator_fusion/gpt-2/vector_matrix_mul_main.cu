@@ -69,63 +69,34 @@ int main(int argc, char* argv[]) {
   torch::Tensor attn_fc_weight = torch_load_tensor(folder_path + "gpt2-torch-data/MLP_c_fc.pt")
             .to(torch::kCUDA)
             .to(torch::kHalf);
-  // torch::Tensor attn_fc_weight =
-  //     torch_load_tensor(folder + "gpt2-torch-data/attn_c_proj.pt")
-  //         .to(torch::kCUDA)
-  //         .to(torch::kHalf);
-  // torch::Tensor attn_fc_weight = torch::ones({5120, 1280},
-  // torch::kHalf).to(torch::kCUDA);
   const int reduce_dim = attn_fc_weight.sizes()[0];
   const int out_dim = attn_fc_weight.sizes()[1];
   const int batch_size = 1;
+
   auto src =
       torch::ones({batch_size, reduce_dim}, torch::kHalf).to(torch::kCUDA);
-  // auto src = torch::nn::init::uniform_(
-  //   torch::randn({batch_size, reduce_dim}, options_fp16), 0,
-  //   1).to(torch::kCUDA);
   auto output =
       torch::empty({batch_size, out_dim}, options_fp16).to(torch::kCUDA);
   auto permuted_attn_fc_weight = torch::permute(attn_fc_weight, {1, 0}).contiguous();
+
   // Declare pointers
   auto d_ptr_input = src.data_ptr<at::Half>();
   // Note, need to permute to make the reduction dimension contiguous
   auto d_ptr_weight = permuted_attn_fc_weight.data_ptr<at::Half>();
   auto cpu_permuted_attn_fc_weight = permuted_attn_fc_weight.to(torch::kCPU);
-  for(int i=0; i<10;++i){
-    printf("%f ", __half2float(cpu_permuted_attn_fc_weight[0][i].item<at::Half>()));
-  }
   auto d_ptr_output = output.data_ptr<at::Half>();
+  // Check correctness
+  auto torch_output = torch::mm(
+      src, attn_fc_weight);  // (m, k) * (k, n) = (m, n)
   cudaDeviceSynchronize();
-  //  half* h_weight = new half[5120 * 1280];
-//  for(int i=0; i< 5120; i++){
-//   for(int j=0;j<1280;j++){
-//     h_weight[i*1280+j] = j + (i%32) * 0.01;
-//   }
-//  }
-//  cudaMemcpy(d_ptr_weight, h_weight, 5120*1280*sizeof(half), cudaMemcpyHostToDevice);
-
-  // Launch kernel
-//   vector_matrix_mul_kernel<1, 1280, 5120>
-//       <<<dim3(kGridSize, 1, 1), dim3(kBlockSize, 1, 1)>>>(
-//           (half*)(d_ptr_input), (half*)d_ptr_weight, (half*)d_ptr_output);
 
   void* args[] = {
     (void**)&d_ptr_input, (void**)&d_ptr_weight, (void**)&d_ptr_output
   };
+    // Launch kernel
   cudaLaunchKernel((void*)vector_matrix_mul_kernel, dim3(kGridSize, 1, 1), 
     dim3(kBlockSize, 1, 1), args);
-  // Launch kernel
-  // vector_matrix_mul_kernel
-  //     <<<dim3(kGridSize, 1, 1), dim3(kBlockSize, 1, 1)>>>(
-  //         (half*)(d_ptr_input), (half*)d_ptr_weight, (half*)d_ptr_output);
-  // vector_matrix_mul_kernel_half2<1, 1280, 5120>
-  //     <<<dim3(kGridSize, 1, 1), dim3(kBlockSize, 1,
-  //     1)>>>((half*)(d_ptr_input), (half*)d_ptr_weight, (half*)d_ptr_output);
-  cudaDeviceSynchronize();
 
-  // Check correctness
-  auto torch_output = torch::mm(
-      src, attn_fc_weight);  // (m, k) * (k, n) = (m, n)
   cudaDeviceSynchronize();
   
   printf("src\n");

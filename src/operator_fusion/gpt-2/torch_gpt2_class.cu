@@ -18,6 +18,7 @@
 #include "gpt2-large.h"
 #include "kernels/gemm.cu"
 #include "kernels/fused_feed_forward_pipeline.cu"
+#include "kernels/layer_norm.cu"
 
 using namespace souffle::gpt2;
 
@@ -60,6 +61,7 @@ class FeedForward {
         torch::zeros({batch_size * max_seq_length,}, options_fp16);
     feed_forward_fc2_layer_norm_sum_x_2 = torch::zeros(
         {batch_size * max_seq_length,}, options_fp16);
+    next_attn_layer_norm_output = torch::zeros({batch_size * max_seq_length, d_model}, options_fp16);
   }
 
   void init_tensor_pointers() {
@@ -74,6 +76,7 @@ class FeedForward {
     ptr_feed_forward_fc2_output = feed_forward_fc2_output.data_ptr<at::Half>();
     ptr_feed_forward_fc2_layer_norm_sum =  feed_forward_fc2_layer_norm_sum.data_ptr<at::Half>();
     ptr_feed_forward_fc2_layer_norm_sum_x_2 = feed_forward_fc2_layer_norm_sum_x_2.data_ptr<at::Half>();
+    ptr_next_attn_layer_norm_output = next_attn_layer_norm_output.data_ptr<at::Half>();
   }
 
   void torch_forward() {
@@ -92,7 +95,9 @@ class FeedForward {
     // 4. short cut add
     t_feed_forward_fc2_short_cut_output = t_feed_forward_fc2_output + input_tensor;
     // 5. layer norm
-    // t_feed_forward_fc2_layer_norm = torch::layer_norm(t_feed_forward_fc2_short_cut_output, {d_model,});
+    t_feed_forward_fc2_layer_norm = torch::layer_norm(t_feed_forward_fc2_short_cut_output, {d_model,});
+    
+    t_layer_norm_sum = torch::mean(t_feed_forward_fc2_short_cut_output, {-1, });
   }
 
   void souffle_forward() {
@@ -100,6 +105,7 @@ class FeedForward {
     // fc1();
     // fc2();
     fused_feed_forward_pipelined();
+    layer_norm();
   }
 
   void fc1() {
@@ -188,6 +194,29 @@ class FeedForward {
         gemm_k6_shared_mem));
   }
 
+  void layer_norm() {
+    // auto input = torch::ones({batch_size * max_seq_length, d_model},
+    //                                       options_fp16);
+    // at::Half* ptr_input = input.data_ptr<at::Half>();
+    // cudaDeviceSynchronize();
+    void* kernel_args[] = {
+        (void*)&eps, (void*)&gama, (void*)&beta,
+        (void*)&(ptr_feed_forward_fc2_output),
+        // (void*)&(ptr_input),
+        (void*)&(ptr_feed_forward_fc2_layer_norm_sum),
+        (void*)&(ptr_feed_forward_fc2_layer_norm_sum_x_2),
+        (void*)&(ptr_next_attn_layer_norm_output),
+    };
+    checkCuda(cudaLaunchKernel(
+        (const void*)layer_norm_v1<384, 1280>, dim3(kNumberSM, 1, 1),
+        dim3(kElementwiseBlockThreads, 1, 1), kernel_args));
+    cudaDeviceSynchronize();
+    checkCuda(cudaLaunchKernel(
+        (const void*)layer_norm_v2<384, 1280>, dim3(kNumberSM, 1, 1),
+        dim3(kElementwiseBlockThreads, 1, 1), kernel_args));
+    cudaDeviceSynchronize();
+  }
+
   void fused_fc1_fc2_layernorm_relu() {}
 
   void fused_feed_forward_pipelined() {
@@ -200,7 +229,8 @@ class FeedForward {
         (void *)&(ptr_feed_forward_fc2_weight),
         (void *)&(ptr_feed_forward_fc2_output),
         (void *)&(ptr_feed_forward_fc2_layer_norm_sum),
-        (void *)&(ptr_feed_forward_fc2_layer_norm_sum_x_2)
+        (void *)&(ptr_feed_forward_fc2_layer_norm_sum_x_2),
+        (void *)&(ptr_next_attn_layer_norm_output)
     };
     const int fused_shared_memory = FeedForwardFC1LimitedBlocksParams::kSharedMemory;
     // std::max(
@@ -224,20 +254,30 @@ class FeedForward {
     cudaDeviceSynchronize();
   }
 
+  
+
   void print() {
-    printf("feed_forward_fc1_output:");
-    torch::print(this->feed_forward_fc1_output);
-    printf("\nt_feed_forward_fc1_output:");
-    torch::print(this->t_feed_forward_fc1_output);
-    printf("\nfeed_forward_fc2_output:");
-    torch::print(this->feed_forward_fc2_output);
-    printf("\nt_feed_forward_fc2_output:");
-    torch::print(this->t_feed_forward_fc2_output);
-    printf("\nfeed_forward_fc2_short_cut_output:");
-    torch::print(this->t_feed_forward_fc2_short_cut_output);
-    my_compare(this->feed_forward_fc1_output, this->t_feed_forward_fc1_output, 1.0/16, 1.0/16, kPrintDiff);
+    // printf("feed_forward_fc1_output:");
+    // torch::print(this->feed_forward_fc1_output);
+    // printf("\nt_feed_forward_fc1_output:");
+    // torch::print(this->t_feed_forward_fc1_output);
+    // printf("\nfeed_forward_fc2_output:");
+    // torch::print(this->feed_forward_fc2_output);
+    // printf("\nt_feed_forward_fc2_output:");
+    // torch::print(this->t_feed_forward_fc2_output);
+    // printf("\nfeed_forward_fc2_short_cut_output:");
+    // torch::print(this->t_feed_forward_fc2_short_cut_output);
+    printf("\nt_feed_forward_fc2_layer_norm");
+    torch::print(t_feed_forward_fc2_layer_norm);
+    printf("\nnext_attn_layer_norm_output");
+    torch::print(next_attn_layer_norm_output);
+    printf("\nlayer_norm_sum:");
+    torch::print(t_layer_norm_sum);
+    printf("\nour_layer_norm_sum:");
+    torch::print(feed_forward_fc2_layer_norm_sum);
+    // my_compare(this->feed_forward_fc1_output, this->t_feed_forward_fc1_output, 1.0/16, 1.0/16, kPrintDiff);
     // my_compare(this->feed_forward_fc2_output, this->t_feed_forward_fc2_output, 1.0/16, 1.0/16, kPrintDiff);
-    my_compare(this->feed_forward_fc2_output, this->t_feed_forward_fc2_short_cut_output, 1.0/16, 1.0/16, kPrintDiff);
+    // my_compare(this->feed_forward_fc2_output, this->t_feed_forward_fc2_short_cut_output, 1.0/16, 1.0/16, kPrintDiff);
   }
 
   std::vector<at::Half *> get_pointers() {
@@ -266,6 +306,7 @@ class FeedForward {
   torch::Tensor feed_forward_fc2_shortcut_output;
   torch::Tensor feed_forward_fc2_layer_norm_sum;
   torch::Tensor feed_forward_fc2_layer_norm_sum_x_2;
+  torch::Tensor next_attn_layer_norm_output;
   // Torch output tensors
   torch::Tensor t_input_layer_norm;
   torch::Tensor t_feed_forward_fc1_output;
@@ -273,6 +314,7 @@ class FeedForward {
   torch::Tensor t_feed_forward_fc2_output;
   torch::Tensor t_feed_forward_fc2_short_cut_output;
   torch::Tensor t_feed_forward_fc2_layer_norm;
+  torch::Tensor t_layer_norm_sum;
   // Pointers
   at::Half *ptr_residual;
   at::Half *ptr_input_tensor;
@@ -285,13 +327,13 @@ class FeedForward {
   at::Half *ptr_feed_forward_fc2_shortcut_output;
   at::Half *ptr_feed_forward_fc2_layer_norm_sum;
   at::Half *ptr_feed_forward_fc2_layer_norm_sum_x_2;
+  at::Half *ptr_next_attn_layer_norm_output;
   half eps = 0.00001, gama = 1, beta = 0;
 };
 
 int main(int argc, char *argv[]) {
   std::string folder_path =
-      "/home/xiachunwei/Projects/tensor-compiler-gpu/src/"
-      "operator_fusion/gpt-2/";
+      "/home/xiachunwei/Projects/tensor-compiler-gpu/src/operator_fusion/gpt-2/";
 //   torch::Tensor feed_forward_input_tensor =
 //       torch::ones({384, 20 * 64}, torch::kCUDA).to(torch::kHalf);
   torch::Tensor feed_forward_input_tensor =

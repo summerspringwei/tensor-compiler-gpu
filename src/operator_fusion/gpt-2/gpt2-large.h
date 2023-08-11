@@ -4,6 +4,11 @@
 namespace souffle {
 namespace gpt2 {
 
+enum GPUParams {
+    kNumberSM = 82,
+    kElementwiseBlockThreads = 32*8,
+};
+
 enum GPT2LargeParams {
     kBatchSize = 1,
     kSeqLength = 384,

@@ -3,6 +3,7 @@
 #include <mma.h>
 
 #include "../gpt2-large.h"
+#include "../../../cuda_kernel_utils.h"
 
 using namespace souffle::gpt2;
 
@@ -635,7 +636,7 @@ __global__ void fused_feed_forwad_pipeline(
         }
 
         __syncthreads();
-
+        // Do reduction across K dimension on shared memory
         const int c_reduce_stride =
             kReduceCColsPerIter * (kGemmK6BlockRowTiles * kWmmaM + kAccSkew);
         const int c_reduce_k_stride = kGemmK6BlockColTiles * kWmmaN *
@@ -679,21 +680,30 @@ __global__ void fused_feed_forwad_pipeline(
                             (kGemmK6BlockRowTiles * kWmmaM + kAccSkew) +
                         (threadIdx.x & (kStoreCLanesPerRow - 1)) *
                             sizeof(float4) / sizeof(half);
-    half tmp_fc2[8];
-    half tmp_residule[8];
-    half out[8];
+    half8 tmp_fc2;
+    half8 tmp_residual;
+    half8 out;
     #pragma unroll
         for (int i = 0; i < kGemmK6BlockColTiles * kWmmaN / kStoreCColsPerIter;
             ++i) {
             // Short cut add here
-            *(float4*)tmp_fc2 = *(float4 *)(c_src_base + i * c_src_stride);
-            *(float4*)tmp_residule = *(float4 *)(c_residual_base + i * c_dst_stride);
-            *(half2*)&(out[0]) = __hadd2(*(half2*)&(tmp_fc2[0]), *(half2*)&(tmp_residule[0]));
-            *(half2*)&(out[2]) = __hadd2(*(half2*)&(tmp_fc2[2]), *(half2*)&(tmp_residule[2]));
-            *(half2*)&(out[4]) = __hadd2(*(half2*)&(tmp_fc2[4]), *(half2*)&(tmp_residule[4]));
-            *(half2*)&(out[6]) = __hadd2(*(half2*)&(tmp_fc2[6]), *(half2*)&(tmp_residule[6]));
+            *(float4*)&tmp_fc2 = *(float4 *)(c_src_base + i * c_src_stride);
+            *(float4*)&tmp_residual = *(float4 *)(c_residual_base + i * c_dst_stride);
+            *(half2*)&(out.data[0]) = __hadd2(*(half2*)&(tmp_fc2.data[0]), *(half2*)&(tmp_residual.data[0]));
+            *(half2*)&(out.data[2]) = __hadd2(*(half2*)&(tmp_fc2.data[2]), *(half2*)&(tmp_residual.data[2]));
+            *(half2*)&(out.data[4]) = __hadd2(*(half2*)&(tmp_fc2.data[4]), *(half2*)&(tmp_residual.data[4]));
+            *(half2*)&(out.data[6]) = __hadd2(*(half2*)&(tmp_fc2.data[6]), *(half2*)&(tmp_residual.data[6]));
             *reinterpret_cast<float4 *>(c_dst_base + i * c_dst_stride) = *(float4*)&out;
-            // Compute Layer Norm and save results to another buffer
         }
+    }
+    // Compute Layer Norm and save results to another buffer
+    // We reuse the tile size of the fc2 output,
+    // shared memory shape:
+    grid.sync();
+    // 1. We first test naive layer norm without shared memory
+    half* input_buf = all_shared_mem;
+    if(blockIdx.x < FeedForwardFC1LimitedBlocksParams::kGridBlocks){
+        // 1. Load data from global memory to shared memory
+        
     }
 }
