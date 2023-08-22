@@ -1066,15 +1066,14 @@ __global__ void gemm_k2_limited_blocks_div_softmax(const half *__restrict__ matr
             for(int j=0; j<kBlockRowTiles * kWmmaM; j += (warpSize * vecLength)){
                 const int shared_col = j + laneIdx * vecLength;
                 auto tmp = *(half2*)(acc_shared + shared_row * (kBlockRowTiles * kWmmaM + kAccSkew) + shared_col);
-                tmp = tmp * factor;
-                tmp = half2(__expf(__half2float(tmp.x)), __expf(__half2float(tmp.y)));
+                tmp = h2exp(tmp * factor);
                 *(half2*)(acc_shared + shared_row * (kBlockRowTiles * kWmmaM + kAccSkew) + shared_col) = tmp;
                 local_sum += tmp;
             }
             half sum = local_sum.x + local_sum.y;
             sum = warpReduceSum(sum);
             if(laneIdx == 0){
-                const int global_row = batched_id * kSeqLength + col_block_id * kBlockColTiles + shared_row;
+                const int global_row = batched_id * kSeqLength + col_block_id * kBlockColTiles * kWmmaN + shared_row;
                 atomicAdd(softmax_sum + global_row , __half2float(sum));
             }
         }
@@ -1083,7 +1082,7 @@ __global__ void gemm_k2_limited_blocks_div_softmax(const half *__restrict__ matr
         for(int i=0; i< kBlockColTiles * kWmmaN / warpNum; ++i){
             #pragma unroll
             const int shared_row = (i * warpNum + warpIdx);
-            const int global_row = batched_id * kSeqLength + col_block_id * kBlockColTiles + shared_row;
+            const int global_row = batched_id * kSeqLength + col_block_id * kBlockColTiles * kWmmaN + shared_row;
             half exp_sum = __float2half(softmax_sum[global_row]);
             #pragma unroll
             for(int j=0; j<kBlockRowTiles * kWmmaM; j += (warpSize * vecLength)){
