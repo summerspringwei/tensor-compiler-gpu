@@ -1055,12 +1055,13 @@ __global__ void gemm_k2_limited_blocks_div_softmax(const half *__restrict__ matr
         const int warpIdx = threadIdx.x >> 5; // threadIdx.x / 32
         const int warpNum = blockDim.x >> 5; // blockIdx.x /128
         const int vecLength = sizeof(half2) / sizeof(half);
-        half2 local_sum(0.0, 0.0);
+        
         half2 factor = half2(1.0, 1.0) / half2(sqrtf(1280), sqrtf(1280));
         // x[i] = exp(x[i] / sqrt(d_model))
         #pragma unroll
         for(int i=0; i< kBlockColTiles * kWmmaN / warpNum; ++i){
             const int shared_row = (i * warpNum + warpIdx);
+            half2 local_sum(0.0, 0.0);
             #pragma unroll
             for(int j=0; j<kBlockRowTiles * kWmmaM; j += (warpSize * vecLength)){
                 const int shared_col = j + laneIdx * vecLength;
