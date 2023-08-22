@@ -5,13 +5,13 @@
 #include <mma.h>
 
 using namespace souffle::gpt2;
-using namespace souffle::gpt2::FeedForwardFC2Params;
+
 // (k, n) * (m, k) = (m, n)
 __global__ void gemm_k6(const half *__restrict__ matrix_a,
                         const half *__restrict__ matrix_b,
                         half *__restrict__ matrix_c) {
     using namespace nvcuda;
-
+    using namespace souffle::gpt2::FeedForwardFC2Params;
     extern __shared__ half all_shared_mem[];
 
     half *matrix_a_shared[kStage], *matrix_b_shared[kStage];

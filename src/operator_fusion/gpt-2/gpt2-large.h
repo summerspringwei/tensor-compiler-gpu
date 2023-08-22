@@ -26,13 +26,111 @@ enum GPTGEMMParams {
     kWmmaK = 16,
     kInputSkew = 8,
     kAccSkew = 8,
-    kChunkK = 2,
     kStage = 3,
-    kBlockRowWarps = 2,
-    kBlockColWarps = 2,
     kWarpSize = 32,
 };
 
+namespace AttnQKVParams {
+    enum QKVParams {
+        kM = 1280,
+        kN = 384,
+        kK = 1280*3,
+
+        kBlockRowWarps = 2,
+        kBlockColWarps = 2,
+        kChunkK = 2,
+        kGemmK1WarpRowTiles = 2,
+        kGemmK1WarpColTiles = 3,
+        
+        kBlockRowTiles = kBlockRowWarps * kGemmK1WarpRowTiles,
+        kBlockColTiles = kBlockColWarps * kGemmK1WarpColTiles,
+        kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
+        kGridBlocks = kM / kBlockRowTiles / kWmmaM * kN / kBlockColTiles / kWmmaN,
+        kSharedMemory = kStage * (3 * kChunkK * kWmmaK * (kBlockRowTiles * kWmmaM + kInputSkew) +
+            (kBlockColTiles * kWmmaN * (kChunkK * kWmmaK + kInputSkew))) * sizeof(half),
+    };
+}// namespace AttnQKVParams
+
+namespace AttnQueryKeyParams {
+    enum QueryKeyParams {
+        kBlockRowWarps = 2,
+        kBlockColWarps = 2,
+        kChunkK = 4,
+        kGemmK2WarpRowTiles = 4,
+        kGemmK2WarpColTiles = 4,
+        kGemmK2BatchedNum = kHeadNum,
+        kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
+        kGridBlocks =
+            (kSeqLength / (kBlockRowWarps * kGemmK2WarpRowTiles * kWmmaM)) *
+            (kSeqLength / (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN)) *
+            kGemmK2BatchedNum,
+        kSharedMemory = ((kBlockRowWarps * kGemmK2WarpRowTiles * kWmmaM) * (kChunkK * kWmmaK + kInputSkew) + (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN) * (kChunkK * kWmmaK + kInputSkew)) * sizeof(half),
+    };
+}
+
+namespace AttnQueryKeyParamsLimitedBlocks {
+    enum QueryKeyParams {
+        kBlockRowWarps = 2,
+        kBlockColWarps = 2,
+        kChunkK = 4,
+        kGemmK2WarpRowTiles = 4,
+        kGemmK2WarpColTiles = 4,
+        kGemmK2BatchedNum = kHeadNum,
+        kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
+        kBatchTiles = 2,
+        kGridBlocks =
+            (kSeqLength / (kBlockRowWarps * kGemmK2WarpRowTiles * kWmmaM)) *
+            (kSeqLength / (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN)) *
+            kGemmK2BatchedNum / kBatchTiles,
+        kSharedMemory = ((kBlockRowWarps * kGemmK2WarpRowTiles * kWmmaM) * (kChunkK * kWmmaK + kInputSkew) + (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN) * (kChunkK * kWmmaK + kInputSkew)) * sizeof(half),
+    };
+}
+
+namespace AttnValueParams {
+    enum AttnValueParams {
+        kBlockRowWarps = 2,
+        kBlockColWarps = 2,
+        kChunkK = 4,
+        kGemmK3WarpRowTiles = 2,
+        kGemmK3WarpColTiles = 2,
+        kGemmK3BatchedNum = kHeadNum,
+        kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
+        kGridBlocks =
+            (kHeadSize / (kBlockRowWarps * kGemmK3WarpRowTiles * kWmmaM)) *
+            (kSeqLength / (kBlockColWarps * kGemmK3WarpColTiles * kWmmaN)) *
+            kGemmK3BatchedNum,
+        kSharedMemory =
+                (kStage *
+                (kChunkK * kWmmaK *
+                    (kBlockRowWarps * kGemmK3WarpRowTiles * kWmmaM + kInputSkew) +
+                kBlockColWarps * kGemmK3WarpColTiles * kWmmaN *
+                    (kChunkK * kWmmaK + kInputSkew))) *
+                sizeof(half),
+    };
+}
+
+namespace AttnFcParams {
+    // (384, 1280) * (1280, 1280) -> (384, 1280)
+    // Each block computes(64, 64)，we need 6*20 blocks
+    enum AttnFcParams {
+        kGemmK4WarpRowTiles = 2,
+        kGemmK4WarpColTiles = 2,
+        kBlockRowWarps = 2,
+        kBlockColWarps = 2,
+        kChunkK = 4,
+        kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
+        kGridBlocks =
+            (kHeadNum * kHeadSize / (kBlockRowWarps * kGemmK4WarpRowTiles * kWmmaM)) *
+            (kSeqLength / (kBlockColWarps * kGemmK4WarpColTiles * kWmmaN)),
+        kSharedMemory =
+        (kStage *
+            (kChunkK * kWmmaK *
+                (kBlockRowWarps * kGemmK4WarpRowTiles * kWmmaM + kInputSkew) +
+            kBlockColWarps * kGemmK4WarpColTiles * kWmmaN *
+                (kChunkK * kWmmaK + kInputSkew))) *
+        sizeof(half),
+    };
+}
 
 namespace FeedForwardFC1Params{
     enum FC1Params {
@@ -44,6 +142,9 @@ namespace FeedForwardFC1Params{
 
         kWarpRowTiles = 4,
         kWarpColTiles = 3,
+        kChunkK = 2,
+        kBlockRowWarps = 2,
+        kBlockColWarps = 2,
         
         kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
         kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
@@ -66,6 +167,9 @@ namespace FeedForwardFC1LimitedBlocksParams{
         kWarpColTiles = 3,
         kMTiles = 2,
         kNTiles = 1,
+        kChunkK = 2,
+        kBlockRowWarps = 2,
+        kBlockColWarps = 2,
         
         kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
         kBlockColTiles = kBlockColWarps * kWarpColTiles,
@@ -97,6 +201,9 @@ namespace FeedForwardFC2Params{
         kGemmK6BlockColTiles = 4,
         // May set kGEEMK6BlockSliceKTiles = 5 for A100
         kGemmK6BlockSliceKTiles = 4,
+        kChunkK = 2,
+        kBlockRowWarps = 2,
+        kBlockColWarps = 2,
 
         kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
         kGridBlocks = (KGEMMFFM / (kGemmK6BlockRowTiles * kWmmaM)) *

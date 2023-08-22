@@ -100,6 +100,15 @@ std::vector<char> readFile(const char* filename)
     return vec;
 }
 
+std::string get_torch_tensor_shape_str(torch::Tensor& tensor) {
+  std::stringstream ss;
+  ss << __FILE__ << ":" << __LINE__ << "tensor.dtype() " << tensor.dtype() << " tensor.sizes():";
+  for(auto s: tensor.sizes()){
+    ss << s << " ";
+  }ss << "\n";
+  return ss.str();
+}
+
 torch::Tensor torch_load_tensor(std::string filename){
   
   std::ifstream input(filename, std::ios::binary);
@@ -114,12 +123,7 @@ torch::Tensor torch_load_tensor(std::string filename){
 
   torch::IValue x = torch::pickle_load(bytes);
   torch::Tensor tensor = x.toTensor();
-  std::stringstream ss;
-  ss << "In torch_utils.cpp:91, tensor.dtype() " << tensor.dtype() << " tensor.sizes(): ";
-  for(auto s: tensor.sizes()){
-    ss << s << " ";
-  }ss << "\n";
-  printf("%s", ss.str().c_str());
+  printf("%s", get_torch_tensor_shape_str(tensor).c_str());
   return tensor;
 }
 

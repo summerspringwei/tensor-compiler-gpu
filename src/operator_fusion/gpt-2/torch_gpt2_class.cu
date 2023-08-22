@@ -3,8 +3,6 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <math.h>
-#include <mma.h>
-
 #include <iostream>
 #include <sstream>
 #include <vector>

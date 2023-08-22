@@ -236,6 +236,8 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   void* fused_attn_kernel_args[] = {(void *)&(ptr_weight_qkv), (void *)&(ptr_src), 
     (void *)&(ptr_bias_qkv), (void *)&(ptr_output_qkv)
   };
+  // (K, M) * (N, K) -> (N, M); (768, 768*3), (384, 768)-> (384, 768*3)
+  // (384)/(2*2*16) * (768)/(2*16) = 6*12 = 72
   const size_t gemm_k1_shared_mem =
     (kStage * /* 3x (3x 4x16 x (2x1x16+8) +  2x3x16 x (4x16+8))*/
       (3 * kChunkK * kWmmaK *
@@ -243,6 +245,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
       kBlockColWarps * kGemmK1WarpColTiles * kWmmaN *
           (kChunkK * kWmmaK + kInputSkew))) *
     sizeof(half);
+  // each block compute(2*16, 4*16)->(32, 64), need
   check_compatability(128, gemm_k1_shared_mem, (void*)gemm_add_qkv_bias);
   printf("qkv matmul shared memory: %ld, blocks %d\n", gemm_k1_shared_mem, 24*4);
   checkCuda(cudaFuncSetAttribute((void*)gemm_add_qkv_bias, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k1_shared_mem));
@@ -259,7 +262,7 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
         (max_seq_length / (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN)) * /*3*/
         kGemmK2BatchedNum; /*12*/
   const int gemm_k2_shared_mem = ((kBlockRowWarps * kGemmK2WarpRowTiles * kWmmaM) * (kChunkK * kWmmaK + kInputSkew) +
-    (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN) * (kChunkK * kWmmaK * kInputSkew)) * sizeof(half);
+    (kBlockColWarps * kGemmK2WarpColTiles * kWmmaN) * (kChunkK * kWmmaK + kInputSkew)) * sizeof(half);
   checkCuda(cudaFuncSetAttribute((void*)gemm_k2, cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, gemm_k2_shared_mem));
   printf("gemm_k2 matmul shared memory: %ld, blocks %d\n", gemm_k2_shared_mem, 3*3*12);
 

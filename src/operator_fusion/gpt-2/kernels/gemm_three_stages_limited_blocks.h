@@ -2,7 +2,7 @@
 #include <cuda/pipeline>
 #include <mma.h>
 
-#include "../gpt2-large.h"
+// #include "../gpt2-large.h"
 
 using namespace souffle::gpt2;
 // Note: (K, M) * (N, K) -> (N, M)
@@ -13,6 +13,7 @@ __global__ void gemm_three_stage_limited_blocks(const half *__restrict__ matrix_
                                  const half *__restrict__ matrix_b,
                                  half *__restrict__ matrix_c) {
     using namespace nvcuda;
+    using namespace souffle::gpt2::FeedForwardFC1LimitedBlocksParams;
     enum {
         kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
         kBlockColTiles = kBlockColWarps * kWarpColTiles,

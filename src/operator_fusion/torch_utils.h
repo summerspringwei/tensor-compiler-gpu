@@ -39,4 +39,6 @@ void my_compare(torch::Tensor& a, torch::Tensor& b, float rotl, float aotl, CMPP
 
 torch::Tensor torch_load_tensor(std::string file_name);
 
+std::string get_torch_tensor_shape_str(torch::Tensor& t);
+
 // torch::Tensor torch_load_model(std::string filename);

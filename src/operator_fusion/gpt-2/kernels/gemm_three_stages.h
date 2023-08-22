@@ -11,6 +11,7 @@ __global__ void gemm_three_stage(const half *__restrict__ matrix_a,
                                  const half *__restrict__ matrix_b,
                                  half *__restrict__ matrix_c) {
     using namespace nvcuda;
+    using namespace souffle::gpt2::FeedForwardFC1Params;
     enum {
         kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
         kBlockColTiles = kBlockColWarps * kWarpColTiles,
