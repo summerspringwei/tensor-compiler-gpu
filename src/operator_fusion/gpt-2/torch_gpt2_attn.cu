@@ -121,6 +121,7 @@ class Attn {
         void* args[] = {
             (void *)&(ptr_key), (void *)&(ptr_query), (void *)&(ptr_query_key_output)
         };
+        
         printf("blocks %d, shared memory: %d\n", AttnQueryKeyParams::kGridBlocks, AttnQueryKeyParams::kSharedMemory);
         checkCuda(cudaFuncSetAttribute((void*)gemm_k2, 
             cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnQueryKeyParams::kSharedMemory), __LINE__);
@@ -128,6 +129,8 @@ class Attn {
             dim3(AttnQueryKeyParams::kGridBlocks, 1, 1), dim3(AttnQueryKeyParams::kBlockThreads, 1, 1), 
             args, AttnQueryKeyParams::kSharedMemory), __LINE__);
     }
+
+
 
     void query_key_limited_blocks() {
         this->ptr_query = this->t_query.data_ptr<at::Half>();
@@ -140,6 +143,23 @@ class Attn {
         checkCuda(cudaFuncSetAttribute((void*)gemm_k2_limited_blocks, 
             cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnQueryKeyParamsLimitedBlocks::kSharedMemory), __LINE__);
         checkCuda(cudaLaunchKernel((void*)gemm_k2_limited_blocks,
+            dim3(AttnQueryKeyParamsLimitedBlocks::kGridBlocks, 1, 1), dim3(AttnQueryKeyParamsLimitedBlocks::kBlockThreads, 1, 1), 
+            args, AttnQueryKeyParamsLimitedBlocks::kSharedMemory), __LINE__);
+    }
+
+    void query_key_limited_blocks_div_softmax(){
+        this->ptr_query = this->t_query.data_ptr<at::Half>();
+        this->ptr_key = this->t_key.data_ptr<at::Half>();
+        this->ptr_query_key_softmax_sum = this->query_key_softmax_sum.data_ptr<float>();
+        this->ptr_query_key_output = this->query_key_output.data_ptr<at::Half>();
+        void* args[] = {
+            (void *)&(ptr_key), (void *)&(ptr_query), (void*)&(ptr_query_key_softmax_sum), (void *)&(ptr_query_key_output)
+        };
+
+        printf("blocks %d, shared memory: %d\n", AttnQueryKeyParamsLimitedBlocks::kGridBlocks, AttnQueryKeyParamsLimitedBlocks::kSharedMemory);
+        checkCuda(cudaFuncSetAttribute((void*)gemm_k2_limited_blocks_div_softmax, 
+            cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnQueryKeyParamsLimitedBlocks::kSharedMemory), __LINE__);
+        checkCuda(cudaLaunchCooperativeKernel((void*)gemm_k2_limited_blocks_div_softmax,
             dim3(AttnQueryKeyParamsLimitedBlocks::kGridBlocks, 1, 1), dim3(AttnQueryKeyParamsLimitedBlocks::kBlockThreads, 1, 1), 
             args, AttnQueryKeyParamsLimitedBlocks::kSharedMemory), __LINE__);
     }
@@ -177,7 +197,9 @@ class Attn {
     void souffle_forward() {
         qkv();
         // query_key();
-        query_key_limited_blocks();
+        // query_key_limited_blocks();
+        query_key_limited_blocks_div_softmax();
+        
         attn_value();
         attn_fc();
     }
@@ -200,10 +222,14 @@ class Attn {
         torch::print(bmm_output);
         printf("\noutput_qkv\n");
         torch::print(output_qkv);
+        
         printf("\nt_query_key_output:\n");
         torch::print(t_query_key_output);
+        printf("\nt_query_key_softmax\n");
+        torch::print(t_query_key_softmax);
         printf("\nquery_key_output:\n");
         torch::print(query_key_output);
+
         printf("\nt_attn_value_output:\n");
         torch::print(t_attn_value_output_permuted);
         printf("\nattn_value_output:\n");
