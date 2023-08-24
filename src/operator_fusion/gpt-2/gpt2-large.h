@@ -114,7 +114,7 @@ namespace AttnFcParams {
     // Each block computes(64, 64)，we need 6*20 blocks
     enum AttnFcParams {
         kGemmK4WarpRowTiles = 2,
-        kGemmK4WarpColTiles = 2,
+        kGemmK4WarpColTiles = 3,
         kBlockRowWarps = 2,
         kBlockColWarps = 2,
         kChunkK = 4,

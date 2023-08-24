@@ -50,6 +50,8 @@ class Attn {
         this->attn_fc_output = torch::zeros({batch_size*max_seq_length, d_model}, options_fp16);
         float v_d_model[] = {d_model,};
         this->t_d_model = torch::from_blob(v_d_model, {1,}).to(torch::kCUDA);
+        this->layer_norm_sum = torch::zeros({batch_size*max_seq_length,}, options_fp16);
+        this->layer_norm_variance = torch::zeros({batch_size*max_seq_length,}, options_fp16);
     }
 
     void init_tensor_pointers() {
@@ -68,13 +70,15 @@ class Attn {
         this->ptr_attn_value_output = this->attn_value_output.data_ptr<at::Half>();
         this->ptr_attn_fc_weight = this->attn_fc_weight.data_ptr<at::Half>();
         this->ptr_attn_fc_output = this->attn_fc_output.data_ptr<at::Half>();
+        this->ptr_layer_norm_sum = this->layer_norm_sum.data_ptr<at::Half>();
+        this->ptr_layer_norm_variance = this->layer_norm_variance.data_ptr<at::Half>();
     }
 
     void torch_forward() {
         auto batched_src = torch::reshape(input_tensor.repeat({3, 1, 1}), {3, max_seq_length, d_model});
         // auto torch_permuted_qkv_weight = torch::permute(qkv_weight.reshape({d_model, 3, d_model}), {1, 0, 2});
         auto torch_permuted_qkv_weight = torch::reshape(torch::permute(qkv_weight, {1, 0}), {3, d_model, d_model});// (3*1280r, 1280)
-        printf("torch_permuted_qkv_weight shape: %s\n", get_torch_tensor_shape_str(torch_permuted_qkv_weight).c_str());
+        printf("torch_permuted_qkv_weight shape: %s\n ", get_torch_tensor_shape_str(torch_permuted_qkv_weight).c_str());
         this->bmm_output = torch::bmm(batched_src, torch_permuted_qkv_weight);// (3, seq_length, d_model)
         auto t_output_qkv = torch::permute(torch::reshape(bmm_output,
                 {3, max_seq_length, num_heads, hidden_size}), {0, 2, 1, 3});// (3, num_heads, seq_length, hidden_size)
@@ -92,11 +96,20 @@ class Attn {
             torch::permute(t_attn_value_output, {1, 0, 2}), {max_seq_length, d_model});
         t_attn_fc_output = torch::matmul(t_attn_value_output_permuted, attn_fc_weight);
         t_attn_fc_short_cut_add = t_attn_fc_output + input_tensor;
+        auto t_layer_norm_sum = torch::sum(t_attn_fc_short_cut_add, -1);
+        auto t_layer_norm_mean = t_layer_norm_sum / d_model;
+        auto expand_t_layer_norm_mean = t_layer_norm_mean.reshape({batch_size, max_seq_length, 1}).repeat({1, 1, d_model});
+        auto t_layer_norm_variance = torch::sum(
+            torch::pow(t_attn_fc_short_cut_add - expand_t_layer_norm_mean, 2), -1) / d_model;
+        printf("\n t_layer_norm_sum\n ");
+        torch::print(t_layer_norm_sum);
+        printf("\n t_layer_norm_variance\n ");
+        torch::print(t_layer_norm_variance);
         t_attn_fc_layernorm_output = torch::layer_norm(t_attn_fc_short_cut_add, {d_model,});
     }
 
     void qkv(){
-        printf("permuted_qkv_weight shape: %s\n", get_torch_tensor_shape_str(this->permuted_qkv_weight).c_str());
+        printf("permuted_qkv_weight shape: %s\n ", get_torch_tensor_shape_str(this->permuted_qkv_weight).c_str());
         // auto weight = torch::ones({3, d_model, d_model}, options_fp16) / 16;
         // at::Half* ptr_weight = weight.data_ptr<at::Half>();
         // auto input = torch::ones({3, max_seq_length, d_model}, options_fp16);
@@ -122,14 +135,13 @@ class Attn {
             (void *)&(ptr_key), (void *)&(ptr_query), (void *)&(ptr_query_key_output)
         };
         
-        printf("blocks %d, shared memory: %d\n", AttnQueryKeyParams::kGridBlocks, AttnQueryKeyParams::kSharedMemory);
+        printf("blocks %d, shared memory: %d\n ", AttnQueryKeyParams::kGridBlocks, AttnQueryKeyParams::kSharedMemory);
         checkCuda(cudaFuncSetAttribute((void*)gemm_k2, 
             cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnQueryKeyParams::kSharedMemory), __LINE__);
         checkCuda(cudaLaunchKernel((void*)gemm_k2,
             dim3(AttnQueryKeyParams::kGridBlocks, 1, 1), dim3(AttnQueryKeyParams::kBlockThreads, 1, 1), 
             args, AttnQueryKeyParams::kSharedMemory), __LINE__);
     }
-
 
 
     void query_key_limited_blocks() {
@@ -139,7 +151,7 @@ class Attn {
         void* args[] = {
             (void *)&(ptr_key), (void *)&(ptr_query), (void *)&(ptr_query_key_output)
         };
-        printf("blocks %d, shared memory: %d\n", AttnQueryKeyParamsLimitedBlocks::kGridBlocks, AttnQueryKeyParamsLimitedBlocks::kSharedMemory);
+        printf("blocks %d, shared memory: %d\n ", AttnQueryKeyParamsLimitedBlocks::kGridBlocks, AttnQueryKeyParamsLimitedBlocks::kSharedMemory);
         checkCuda(cudaFuncSetAttribute((void*)gemm_k2_limited_blocks, 
             cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnQueryKeyParamsLimitedBlocks::kSharedMemory), __LINE__);
         checkCuda(cudaLaunchKernel((void*)gemm_k2_limited_blocks,
@@ -156,7 +168,7 @@ class Attn {
             (void *)&(ptr_key), (void *)&(ptr_query), (void*)&(ptr_query_key_softmax_sum), (void *)&(ptr_query_key_output)
         };
 
-        printf("blocks %d, shared memory: %d\n", AttnQueryKeyParamsLimitedBlocks::kGridBlocks, AttnQueryKeyParamsLimitedBlocks::kSharedMemory);
+        printf("blocks %d, shared memory: %d\n ", AttnQueryKeyParamsLimitedBlocks::kGridBlocks, AttnQueryKeyParamsLimitedBlocks::kSharedMemory);
         checkCuda(cudaFuncSetAttribute((void*)gemm_k2_limited_blocks_div_softmax, 
             cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnQueryKeyParamsLimitedBlocks::kSharedMemory), __LINE__);
         checkCuda(cudaLaunchCooperativeKernel((void*)gemm_k2_limited_blocks_div_softmax,
@@ -171,7 +183,7 @@ class Attn {
             (void *)&(ptr_value), (void *)&(ptr_query_key_output), 
             (void *)&(ptr_attn_value_output), 
         };
-        printf("blocks %d, shared memory: %d\n", AttnValueParams::kGridBlocks, AttnValueParams::kSharedMemory);
+        printf("blocks %d, shared memory: %d\n ", AttnValueParams::kGridBlocks, AttnValueParams::kSharedMemory);
         checkCuda(cudaFuncSetAttribute((void*)gemm_reshape, 
             cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnValueParams::kSharedMemory), __LINE__);
         checkCuda(cudaLaunchKernel((void*)gemm_reshape, 
@@ -183,12 +195,27 @@ class Attn {
         void* args [] = {
             (void*)&ptr_attn_fc_weight, (void*)&ptr_attn_value_output, (void*)&ptr_attn_fc_output
         };
-        printf("blocks %d, shared memory: %d\n", AttnFcParams::kGridBlocks, AttnFcParams::kSharedMemory);
+        printf("blocks %d, shared memory: %d\n ", AttnFcParams::kGridBlocks, AttnFcParams::kSharedMemory);
         void* func_kernel = (void*)gemm_three_stage<AttnFcParams::kGemmK4WarpRowTiles, AttnFcParams::kGemmK4WarpColTiles, 
             kHeadNum * kHeadSize, kSeqLength, kHeadNum * kHeadSize, 1>;
         checkCuda(cudaFuncSetAttribute((void*)func_kernel, 
             cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnFcParams::kSharedMemory), __LINE__);
         checkCuda(cudaLaunchKernel((void*)func_kernel,
+            dim3(AttnFcParams::kGridBlocks, 1, 1), dim3(AttnFcParams::kBlockThreads, 1, 1), 
+            args, AttnFcParams::kSharedMemory), __LINE__);
+    }
+
+    void attn_fc_short_cut_layer_norm() {
+        this->ptr_attn_value_output = t_attn_value_output_permuted.data_ptr<at::Half>();
+        void* args [] = {
+            (void*)&ptr_attn_fc_weight, (void*)&ptr_attn_value_output, (void*)&ptr_input_tensor,
+            (void*)&ptr_layer_norm_sum, (void*)&ptr_layer_norm_variance, 
+            (void*)&eps, (void*)&gama, (void*)&beta, (void*)&ptr_attn_fc_output,
+        };
+        printf("blocks %d, shared memory: %d\n ", AttnFcParams::kGridBlocks, AttnFcParams::kSharedMemory);
+        checkCuda(cudaFuncSetAttribute((void*)attn_fc_layer_norm, 
+            cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, AttnFcParams::kSharedMemory), __LINE__);
+        checkCuda(cudaLaunchCooperativeKernel((void*)attn_fc_layer_norm,
             dim3(AttnFcParams::kGridBlocks, 1, 1), dim3(AttnFcParams::kBlockThreads, 1, 1), 
             args, AttnFcParams::kSharedMemory), __LINE__);
     }
@@ -201,44 +228,55 @@ class Attn {
         query_key_limited_blocks_div_softmax();
         
         attn_value();
-        attn_fc();
+        // attn_fc();
+        attn_fc_short_cut_layer_norm();
     }
 
     void print() {
-        printf("\ninput_tensor:\n");
+        printf("\n input_tensor:\n ");
         torch::print(input_tensor);
-        printf("\nqkv_weight:\n");
+        printf("\n qkv_weight:\n ");
         torch::print(qkv_weight);
-        printf("\nt_query:\n");
+        printf("\n t_query:\n ");
         // torch::print(t_query);
         torch::print(t_qkv[0]);
-        printf("\nt_key:\n");
+        printf("\n t_key:\n ");
         // torch::print(t_key);
         torch::print(t_qkv[1]);
-        printf("\nt_value:\n");
+        printf("\n t_value:\n ");
         // torch::print(t_value);
         torch::print(t_qkv[2]);
-        printf("\nbmm_output:\n");
+        printf("\n bmm_output:\n ");
         torch::print(bmm_output);
-        printf("\noutput_qkv\n");
+        printf("\n output_qkv\n ");
         torch::print(output_qkv);
         
-        printf("\nt_query_key_output:\n");
+        printf("\n t_query_key_output:\n ");
         torch::print(t_query_key_output);
-        printf("\nt_query_key_softmax\n");
+        printf("\n t_query_key_softmax\n ");
         torch::print(t_query_key_softmax);
-        printf("\nquery_key_output:\n");
+        printf("\n query_key_output:\n ");
         torch::print(query_key_output);
 
-        printf("\nt_attn_value_output:\n");
+        printf("\n t_attn_value_output:\n ");
         torch::print(t_attn_value_output_permuted);
-        printf("\nattn_value_output:\n");
+        printf("\n attn_value_output:\n ");
         torch::print(attn_value_output);
-        printf("\nattn_fc_output:\n");
+        printf("\n t_attn_fc_output:\n ");
         torch::print(t_attn_fc_output);
-        printf("\nattn_fc_output:\n");
+        printf("\n attn_fc_output:\n ");
         torch::print(attn_fc_output);
-        // my_compare();
+        // assert(torch::allclose(t_attn_fc_output, attn_fc_output, 1e-1, 1e-1));
+        my_compare(t_attn_fc_output, attn_fc_output, 1e-1, 1e-1);
+        printf("\n t_attn_fc_short_cut_add:\n ");
+        torch::print(t_attn_fc_short_cut_add);
+        printf("\n t_attn_fc_layernorm_output\n ");
+        torch::print(t_attn_fc_layernorm_output);
+        printf("\n layer_norm_sum\n ");
+        torch::print(layer_norm_sum);
+        printf("\n layer_norm_variance\n ");
+        torch::print(layer_norm_variance);
+        
     }
 
 public:
@@ -272,6 +310,8 @@ public:
     torch::Tensor qkv_weight;
     torch::Tensor qkv_bias;
     torch::Tensor attn_fc_weight;
+    torch::Tensor layer_norm_sum;
+    torch::Tensor layer_norm_variance;
     // Our pointers
     at::Half* ptr_input_tensor;
     at::Half* ptr_qkv_weight;
@@ -286,6 +326,10 @@ public:
     at::Half* ptr_attn_value_output;
     at::Half* ptr_attn_fc_weight;
     at::Half* ptr_attn_fc_output;
+    at::Half* ptr_layer_norm_sum;
+    at::Half* ptr_layer_norm_variance;
+
+    half eps = 0.00001, gama = 1, beta = 0;
 };
 
 
