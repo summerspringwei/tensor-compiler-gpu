@@ -154,6 +154,14 @@ namespace FeedForwardFC1Params{
         kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
         kBlockColTiles = kBlockColWarps * kWarpColTiles,
         kGridBlocks = KGEMMFFM / kBlockRowTiles / kWmmaM * KGEMMFFN / kBlockColTiles / kWmmaN,
+        kSharedMemory =
+        (kStage *
+         (kChunkK * kWmmaK *
+              (kBlockRowWarps * FeedForwardFC1Params::kBlockRowTiles * kWmmaM +
+               kInputSkew) +
+          kBlockColWarps * FeedForwardFC1Params::kBlockColTiles * kWmmaN *
+              (kChunkK * kWmmaK + kInputSkew))) *
+        sizeof(half),
     };
 
 } // namespace FeedForwardFC1Params

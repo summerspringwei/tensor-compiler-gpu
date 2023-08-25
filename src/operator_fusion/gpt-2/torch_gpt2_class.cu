@@ -111,16 +111,9 @@ class FeedForward {
     void *fused_feed_forward_fc1_kernel_args[] = {
         (void *)&(ptr_feed_forward_fc1_weight), (void *)&(ptr_input_tensor),
         (void *)&(ptr_feed_forward_fc1_output)};
-    const int feed_forward_fc1_shared_mem =
-        (kStage *
-         (kChunkK * kWmmaK *
-              (kBlockRowWarps * FeedForwardFC1Params::kBlockRowTiles * kWmmaM +
-               kInputSkew) +
-          kBlockColWarps * FeedForwardFC1Params::kBlockColTiles * kWmmaN *
-              (kChunkK * kWmmaK + kInputSkew))) *
-        sizeof(half);
+    
     printf("fc1 shared memory %d KB, grid blocks %d\n",
-           feed_forward_fc1_shared_mem / 1024,
+           FeedForwardFC1Params::kSharedMemory / 1024,
            FeedForwardFC1Params::kGridBlocks);
     const void *cuda_kernel_func = (const void *)
         gemm_three_stage<FeedForwardFC1Params::kWarpRowTiles,
@@ -130,13 +123,13 @@ class FeedForward {
         cudaFuncSetAttribute(
             cuda_kernel_func,
             cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-            feed_forward_fc1_shared_mem),
+            FeedForwardFC1Params::kSharedMemory),
         __LINE__);
     checkCuda(cudaLaunchKernel(cuda_kernel_func,
                                dim3(FeedForwardFC1Params::kGridBlocks, 1, 1),
                                dim3(FeedForwardFC1Params::kBlockThreads, 1, 1),
                                fused_feed_forward_fc1_kernel_args,
-                               feed_forward_fc1_shared_mem),
+                               FeedForwardFC1Params::kSharedMemory),
               __LINE__);
     cudaDeviceSynchronize();
   }
