@@ -92,7 +92,7 @@ namespace AttnValueParams {
         kBlockColWarps = 2,
         kChunkK = 4,
         kGemmK3WarpRowTiles = 2,
-        kGemmK3WarpColTiles = 2,
+        kGemmK3WarpColTiles = 3, /**change from 2 to 3*/
         kGemmK3BatchedNum = kHeadNum,
         kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
         kGridBlocks =
@@ -117,6 +117,10 @@ namespace AttnFcParams {
         kGemmK4WarpColTiles = 3,
         kBlockRowWarps = 2,
         kBlockColWarps = 2,
+        kWarpRowTiles = kGemmK4WarpRowTiles,
+        kWarpColTiles = kGemmK4WarpColTiles,
+        kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
+        kBlockColTiles = kBlockColWarps * kWarpColTiles,
         kChunkK = 4,
         kBlockThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
         kGridBlocks =

@@ -22,14 +22,14 @@ __global__ void fused_gpt2_attn(const half *__restrict__ ptr_qkv_weight,
                                 const half *__restrict__ ptr_value,
                                 half *__restrict__ ptr_attn_value_output,
                                 const half *__restrict__ ptr_attn_fc_weight,
-                                half *__restrict__ layer_norm_sum,
-                                half *__restrict__ layer_norm_variance,
+                                float *__restrict__ layer_norm_sum,
+                                float *__restrict__ layer_norm_variance,
                                 half eps, half gama, half beta,
                                 half *__restrict__ ptr_attn_fc_output) {
     using namespace nvcuda;
     extern __shared__ half all_shared_mem[];
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
-    if(blockIdx.x < souffle::gpt2::AttnQKVParams::kGridBlocks){
+if(blockIdx.x < souffle::gpt2::AttnQKVParams::kGridBlocks){
     using namespace souffle::gpt2::AttnQKVParams;
     
     half *matrix_a_shared[3][kStage], *matrix_b_shared[kStage];
@@ -77,10 +77,10 @@ __global__ void fused_gpt2_attn(const half *__restrict__ ptr_qkv_weight,
 
     acc_shared = all_shared_mem;
     // Each warp compute 3x1 weight x 3 fragment
-    nvcuda::wmma::fragment<nvcuda::wmma::ptr_qkv_weight, kWmmaM, kWmmaN, kWmmaK, half,
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::col_major>
         wmma_matrix_a[3][kGemmK1WarpRowTiles];
-    nvcuda::wmma::fragment<nvcuda::wmma::ptr_input_tensor, kWmmaM, kWmmaN, kWmmaK, half,
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::col_major>
         wmma_matrix_b[kGemmK1WarpColTiles];
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, kWmmaM, kWmmaN, kWmmaK,
@@ -522,9 +522,10 @@ __global__ void fused_gpt2_attn(const half *__restrict__ ptr_qkv_weight,
         }
     }
     }// end of qkv
-    grid.sync();
 
-    if(blockIdx.x < souffle::gpt2::AttnQueryKeyParamsLimitedBlocks::kGridBlocks){
+grid.sync();
+
+if(blockIdx.x < souffle::gpt2::AttnQueryKeyParamsLimitedBlocks::kGridBlocks){
     using namespace souffle::gpt2::AttnQueryKeyParamsLimitedBlocks;
     enum {
         kBlockRowTiles = kBlockRowWarps * kGemmK2WarpRowTiles,
@@ -538,10 +539,10 @@ __global__ void fused_gpt2_attn(const half *__restrict__ ptr_qkv_weight,
 
     half *acc_shared = all_shared_mem;
 
-    nvcuda::wmma::fragment<nvcuda::wmma::ptr_key, kWmmaM, kWmmaN, kWmmaK, half,
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::row_major>
         wmma_matrix_a[kGemmK2WarpRowTiles];
-    nvcuda::wmma::fragment<nvcuda::wmma::ptr_query, kWmmaM, kWmmaN, kWmmaK, half,
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::col_major>
         wmma_matrix_b[kGemmK2WarpColTiles];
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, kWmmaM, kWmmaN, kWmmaK,
@@ -685,7 +686,6 @@ __global__ void fused_gpt2_attn(const half *__restrict__ ptr_qkv_weight,
 
     // Do div and softmax
     // Each warp compute one row
-    cooperative_groups::grid_group grid = cooperative_groups::this_grid();
     {
         const int laneIdx = threadIdx.x % kWarpSize;
         const int warpIdx = threadIdx.x >> 5; // threadIdx.x / 32
@@ -713,6 +713,7 @@ __global__ void fused_gpt2_attn(const half *__restrict__ ptr_qkv_weight,
                 atomicAdd(softmax_sum + global_row , __half2float(sum));
             }
         }
+        
         grid.sync();
         // x[i] = x[i] / sum
         for(int i=0; i< kBlockColTiles * kWmmaN / warpNum; ++i){
@@ -759,8 +760,6 @@ if(blockIdx.x < souffle::gpt2::AttnValueParams::kGridBlocks){
         kBlockRowTiles = kBlockRowWarps * kGemmK3WarpRowTiles,
         kBlockColTiles = kBlockColWarps * kGemmK3WarpColTiles,
     };
-    
-    extern __shared__ half all_shared_mem[];
 
     half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
     half *acc_shared;
@@ -787,10 +786,10 @@ if(blockIdx.x < souffle::gpt2::AttnValueParams::kGridBlocks){
 
     acc_shared = all_shared_mem;
 
-    nvcuda::wmma::fragment<nvcuda::wmma::ptr_value, kWmmaM, kWmmaN, kWmmaK, half,
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::col_major>
         wmma_matrix_a[kGemmK3WarpRowTiles];
-    nvcuda::wmma::fragment<nvcuda::wmma::ptr_query_key_output, kWmmaM, kWmmaN, kWmmaK, half,
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::col_major>
         wmma_matrix_b[kGemmK3WarpColTiles];
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, kWmmaM, kWmmaN, kWmmaK,
@@ -1059,8 +1058,8 @@ if(blockIdx.x < souffle::gpt2::AttnValueParams::kGridBlocks){
 
 grid.sync();
 
-
-if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
+{
+    // Shared variables
     using namespace souffle::gpt2::AttnFcParams;
     enum {
         kWarpRowTiles = kGemmK4WarpRowTiles,
@@ -1069,13 +1068,25 @@ if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
         N = kSeqLength,
         K = kHeadNum * kHeadSize,
         B = 1,
-        kBlockRowTiles = kBlockRowWarps * kWarpRowTiles,
-        kBlockColTiles = kBlockColWarps * kWarpColTiles,
     };
-
-    half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
     half *acc_shared;
+    const int row_warp_id = (threadIdx.x / kWarpSize) % kBlockRowWarps;
+    const int col_warp_id = (threadIdx.x / kWarpSize) / kBlockRowWarps;
+    const int batch_stride =
+        (N / kBlockColTiles / kWmmaN) * (M / kBlockRowTiles / kWmmaM);
+    const int batched_id = blockIdx.x / batch_stride;
+    const int row_block_id =
+        blockIdx.x % batch_stride % (M / kBlockRowTiles / kWmmaM);
+    const int col_block_id =
+        blockIdx.x % batch_stride / (M / kBlockRowTiles / kWmmaM);
+    const int laneIdx = threadIdx.x % kWarpSize;
+    const int warpIdx = threadIdx.x >> 5; // threadIdx.x / 32
+    const int warpNum = blockDim.x >> 5; // blockDim.x / 128
+    const int vecLength = sizeof(half2) / sizeof(half);
+    using namespace souffle::gpt2::AttnFcParams;
 
+if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
+    half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
     matrix_a_shared[0] = all_shared_mem;
     matrix_a_shared[1] =
         all_shared_mem +
@@ -1098,25 +1109,17 @@ if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
 
     acc_shared = all_shared_mem;
 
-    nvcuda::wmma::fragment<nvcuda::wmma::ptr_attn_fc_weight, kWmmaM, kWmmaN, kWmmaK, half,
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::col_major>
         wmma_matrix_a[kWarpRowTiles];
-    nvcuda::wmma::fragment<nvcuda::wmma::ptr_attn_value_output, kWmmaM, kWmmaN, kWmmaK, half,
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, kWmmaM, kWmmaN, kWmmaK, half,
                            nvcuda::wmma::col_major>
         wmma_matrix_b[kWarpColTiles];
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, kWmmaM, kWmmaN, kWmmaK,
                            half>
         wmma_accumulator[kWarpColTiles * kWarpRowTiles];
 
-    const int row_warp_id = (threadIdx.x / kWarpSize) % kBlockRowWarps;
-    const int col_warp_id = (threadIdx.x / kWarpSize) / kBlockRowWarps;
-    const int batch_stride =
-        (N / kBlockColTiles / kWmmaN) * (M / kBlockRowTiles / kWmmaM);
-    const int batched_id = blockIdx.x / batch_stride;
-    const int row_block_id =
-        blockIdx.x % batch_stride % (M / kBlockRowTiles / kWmmaM);
-    const int col_block_id =
-        blockIdx.x % batch_stride / (M / kBlockRowTiles / kWmmaM);
+
 
 #pragma unroll
     for (int col = 0; col < kWarpColTiles; ++col) {
@@ -1139,6 +1142,8 @@ if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
         kStoreCLanesPerRow = kLoadALanesPerRow,
         kStoreCColsPerIter = kLoadAColsPerIter,
     };
+
+    cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
 
     const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
     int stage = 0;
@@ -1376,26 +1381,13 @@ if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
         *(half2*)&(c_dst_half8.data[2]) = *(half2*)&(c_dst_half8.data[2]) + *(half2*)&(input_half8.data[2]);
         *(half2*)&(c_dst_half8.data[4]) = *(half2*)&(c_dst_half8.data[4]) + *(half2*)&(input_half8.data[4]);
         *(half2*)&(c_dst_half8.data[6]) = *(half2*)&(c_dst_half8.data[6]) + *(half2*)&(input_half8.data[6]);
-        // *reinterpret_cast<half8 *>(c_src_base + i * c_src_stride) = c_dst_half8;
-        half8 tmp;
-        tmp.data[0] = half(i/8.0);
-        tmp.data[1] = half(i/8.0);
-        tmp.data[2] = half(i/8.0);
-        tmp.data[3] = half(i/8.0);
-        tmp.data[4] = half(i/8.0);
-        tmp.data[5] = half(i/8.0);
-        tmp.data[6] = half(i/8.0);
-        tmp.data[7] = half(i/8.0);
-
-        *reinterpret_cast<half8 *>(c_src_base + i * c_src_stride) = tmp;
+        *reinterpret_cast<half8 *>(c_src_base + i * c_src_stride) = c_dst_half8;
     }
-    cooperative_groups::grid_group grid = cooperative_groups::this_grid();
-    const int laneIdx = threadIdx.x % kWarpSize;
-    const int warpIdx = threadIdx.x >> 5; // threadIdx.x / 32
-    const int warpNum = blockDim.x >> 5; // blockDim.x / 128
-    const int vecLength = sizeof(half2) / sizeof(half);
-    // Do layer norm sum
-    {
+    
+}// end of first part of attn_fc_short_cut_add
+
+if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
+        // Do layer norm sum
         #pragma unroll
         for(int i=0; i< kBlockColTiles * kWmmaN / warpNum; ++i){
             const int shared_row = (i * warpNum + warpIdx);
@@ -1409,18 +1401,18 @@ if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
             half sum = local_sum.x + local_sum.y;
             sum = warpReduceSum(sum);
             if(laneIdx == 0){
-                atomicAdd(layer_norm_sum + global_row, sum);
+                atomicAdd(layer_norm_sum + global_row, __half2float(sum));
             }
         }
     }
-    grid.sync();
+grid.sync();
     // Do layer norm variance
-    {
+if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
         #pragma unroll
         for(int i=0; i< kBlockColTiles * kWmmaN / warpNum; ++i){
             const int shared_row = (i * warpNum + warpIdx);
             const int global_row = batched_id * N + col_block_id * kBlockColTiles * kWmmaN + shared_row;
-            const half2 mean = __float2half2_rn(layer_norm_sum[global_row] / half(kHiddenDim));
+            const half2 mean = __float2half2_rn(layer_norm_sum[global_row] / kHiddenDim);
             half2 local_sum(0.0, 0.0);
             // Loop along the row
             #pragma unroll
@@ -1432,22 +1424,32 @@ if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
             half sum = local_sum.x + local_sum.y;
             sum = warpReduceSum(sum);
             if(laneIdx == 0){
-                atomicAdd(layer_norm_sum + global_row, sum);
+                atomicAdd(layer_norm_variance + global_row, __half2float(sum));
             }
         }
     }
     grid.sync();
     // Do normalization
-    {
+if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
+        using namespace souffle::gpt2::AttnFcParams;
+            enum {
+        kThreads = kBlockRowWarps * kBlockColWarps * kWarpSize,
+        kLoadALanesPerRow =
+            kWmmaM * kBlockRowTiles / (sizeof(float4) / sizeof(half)),
+        kLoadAColsPerIter = kThreads / kLoadALanesPerRow,
+
+        kLoadBLanesPerRow = kWmmaK * kChunkK / (sizeof(float4) / sizeof(half)),
+        kLoadBColsPerIter = kThreads / kLoadBLanesPerRow,
+
+        kStoreCLanesPerRow = kLoadALanesPerRow,
+        kStoreCColsPerIter = kLoadAColsPerIter,
+    };
         #pragma unroll
         for(int i=0; i< kBlockColTiles * kWmmaN / warpNum; ++i){
             const int shared_row = (i * warpNum + warpIdx);
             const int global_row = batched_id * N + col_block_id * kBlockColTiles * kWmmaN + shared_row;
-            const half2 mean = __float2half2_rn(__half2float(layer_norm_sum[global_row]) / kHiddenDim);
-            const half2 variance_mean = __float2half2_rn(sqrtf(__half2float(layer_norm_variance[global_row]) / kHiddenDim + __half2float(eps)));
-            // if(blockIdx.x==0){
-            //     printf("%f %f\n", __half2float(mean.x), __half2float(variance_mean.x));
-            // }
+            const half2 mean = __float2half2_rn(layer_norm_sum[global_row] / kHiddenDim);
+            const half2 variance_mean = __float2half2_rn(sqrtf(layer_norm_variance[global_row] / kHiddenDim + __half2float(eps)));
             // Loop along the row
             #pragma unroll
             for(int j=0; j<kBlockRowTiles * kWmmaM; j += (warpSize * vecLength)){
@@ -1457,15 +1459,30 @@ if(blockIdx.x < souffle::gpt2::AttnFcParams::kGridBlocks){
                 *(half2*)(acc_shared + shared_row * (kBlockRowTiles * kWmmaM + kAccSkew) + shared_col) = tmp;
             }
         }
-    }
     __syncthreads();
+    const int c_dst_stride = kStoreCColsPerIter * M;
+    const int c_src_stride =
+        kStoreCColsPerIter * (kBlockRowTiles * kWmmaM + kAccSkew);
 
+    half *c_dst_base = ptr_attn_fc_output + batched_id * N * M +
+                       row_block_id * kBlockRowTiles * kWmmaM +
+                       (col_block_id * kBlockColTiles * kWmmaN +
+                        threadIdx.x / kStoreCLanesPerRow) *
+                           M +
+                       (threadIdx.x & (kStoreCLanesPerRow - 1)) *
+                           sizeof(float4) / sizeof(half);
+    
+    half *c_src_base = acc_shared +
+                       threadIdx.x / kStoreCLanesPerRow *
+                           (kBlockRowTiles * kWmmaM + kAccSkew) +
+                       (threadIdx.x & (kStoreCLanesPerRow - 1)) *
+                           sizeof(float4) / sizeof(half);
 #pragma unroll
     for (int i = 0; i < kBlockColTiles * kWmmaN / kStoreCColsPerIter; ++i) {
         *reinterpret_cast<float4 *>(c_dst_base + i * c_dst_stride) =
             *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
     }
-} // end of attn_fc
+} // end of attn_fc_norm
+}// end of attn_fc
 
 }
-

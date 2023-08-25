@@ -1811,9 +1811,6 @@ __global__ void attn_fc_layer_norm(
             const int global_row = batched_id * N + col_block_id * kBlockColTiles * kWmmaN + shared_row;
             const half2 mean = __float2half2_rn(layer_norm_sum[global_row] / kHiddenDim);
             const half2 variance_mean = __float2half2_rn(sqrtf(layer_norm_variance[global_row] / kHiddenDim + __half2float(eps)));
-            // if(blockIdx.x==0){
-            //     printf("%f %f\n", __half2float(mean.x), __half2float(variance_mean.x));
-            // }
             // Loop along the row
             #pragma unroll
             for(int j=0; j<kBlockRowTiles * kWmmaM; j += (warpSize * vecLength)){

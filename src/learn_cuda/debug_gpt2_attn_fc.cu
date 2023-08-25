@@ -2,6 +2,8 @@
 #include "cuda_fp16.h"
 #include "../cuda_kernel_utils.h"
 #include <stdio.h>
+#include <vector>
+#include <algorithm>
 
 #include <cooperative_groups.h>
 #include <cuda/pipeline>
@@ -436,8 +438,8 @@ int main(int argc, char* argv[]) {
     half* short_cut = (half*)malloc(input_size * sizeof(half));
     half* weight = (half*)malloc(weight_size * sizeof(half));
     half* bias = (half*)malloc(output_size * sizeof(half));
-    float* layer_norm_sum = (float*)malloc(layer_norm_size * sizeof(half));
-    float* layer_norm_variance = (float*)malloc(layer_norm_size * sizeof(half));
+    float* layer_norm_sum = (float*)malloc(layer_norm_size * sizeof(float));
+    float* layer_norm_variance = (float*)malloc(layer_norm_size * sizeof(float));
     half* output = (half*)malloc(output_size * sizeof(half));
 
     half* d_input;
@@ -524,4 +526,13 @@ int main(int argc, char* argv[]) {
     cudaFree(d_layer_norm_variance);
     cudaFree(d_output);
 
+    enum CP{
+        a= 3,
+        b=5,
+        c=1,
+    };
+    printf("%d\n", std::max(a, std::max(b, c)));
+    std::vector<int> cloud = {a, b, c};
+    auto it = std::max_element(std::begin(cloud), std::end(cloud)); // C++11
+    printf("%d\n", *it);
 }

@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <vector>
+#include <algorithm>
 
 #include "torch/all.h"
 
@@ -11,6 +12,7 @@
 
 #include "gpt2-large.h"
 #include "kernels/gemm.cu"
+#include "kernels/fused_gpt2_attn.cu"
 
 
 template <int64_t batch_size, int64_t num_heads, int64_t max_seq_length,
@@ -50,8 +52,8 @@ class Attn {
         this->attn_fc_output = torch::zeros({batch_size*max_seq_length, d_model}, options_fp16);
         float v_d_model[] = {d_model,};
         this->t_d_model = torch::from_blob(v_d_model, {1,}).to(torch::kCUDA);
-        this->layer_norm_sum = torch::zeros({batch_size*max_seq_length,}, options_fp16);
-        this->layer_norm_variance = torch::zeros({batch_size*max_seq_length,}, options_fp16);
+        this->layer_norm_sum = torch::zeros({batch_size*max_seq_length,}, options_fp32);
+        this->layer_norm_variance = torch::zeros({batch_size*max_seq_length,}, options_fp32);
     }
 
     void init_tensor_pointers() {
@@ -70,8 +72,8 @@ class Attn {
         this->ptr_attn_value_output = this->attn_value_output.data_ptr<at::Half>();
         this->ptr_attn_fc_weight = this->attn_fc_weight.data_ptr<at::Half>();
         this->ptr_attn_fc_output = this->attn_fc_output.data_ptr<at::Half>();
-        this->ptr_layer_norm_sum = this->layer_norm_sum.data_ptr<at::Half>();
-        this->ptr_layer_norm_variance = this->layer_norm_variance.data_ptr<at::Half>();
+        this->ptr_layer_norm_sum = this->layer_norm_sum.data_ptr<float>();
+        this->ptr_layer_norm_variance = this->layer_norm_variance.data_ptr<float>();
     }
 
     void torch_forward() {
@@ -220,6 +222,44 @@ class Attn {
             args, AttnFcParams::kSharedMemory), __LINE__);
     }
 
+    void fused_attn() {
+        void* args[] = {
+            (void*)&ptr_qkv_weight, 
+            (void*)&ptr_input_tensor, 
+            (void*)&ptr_qkv_bias, 
+            (void*)&ptr_output_qkv,
+            (void*)&ptr_key, (void*)&ptr_query, 
+            (void*)&ptr_query_key_softmax_sum, 
+            (void*)&ptr_query_key_output,
+            (void*)&ptr_value,
+            (void*)&ptr_attn_value_output,
+            (void*)&ptr_attn_fc_weight,
+            (void*)&ptr_layer_norm_sum,
+            (void*)&ptr_layer_norm_variance,
+            (void*)&eps, (void*)&gama, (void*)&beta, (void*)&ptr_attn_fc_output
+        };
+        std::vector<int> shared_memorys = {
+            AttnQKVParams::kSharedMemory, 
+            AttnQueryKeyParamsLimitedBlocks::kSharedMemory,
+            AttnValueParams::kSharedMemory,
+            AttnFcParams::kSharedMemory
+        };
+        std::vector<int> vec_blocks = {
+            AttnQKVParams::kGridBlocks, 
+            AttnQueryKeyParamsLimitedBlocks::kGridBlocks,
+            AttnValueParams::kGridBlocks,
+            AttnFcParams::kGridBlocks
+        };
+        auto it = std::max_element(std::begin(shared_memorys), std::end(shared_memorys)); // C++11
+        const int kSharedMemory = *it;
+        it = std::max_element(std::begin(vec_blocks), std::end(vec_blocks)); // C++11
+        const int kGridBlocks = *it;
+        const int kBlockThreads = 128;
+        checkCuda(cudaFuncSetAttribute((void*)fused_gpt2_attn, 
+            cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize, kSharedMemory), __LINE__);
+        checkCuda(cudaLaunchCooperativeKernel((void*)fused_gpt2_attn,
+            dim3(kGridBlocks, 1, 1), dim3(kBlockThreads, 1, 1), args, kSharedMemory), __LINE__);
+    }
 
     void souffle_forward() {
         qkv();
@@ -230,7 +270,11 @@ class Attn {
         attn_value();
         // attn_fc();
         attn_fc_short_cut_layer_norm();
+
+        fused_attn();
     }
+
+    
 
     void print() {
         printf("\n input_tensor:\n ");
@@ -326,8 +370,8 @@ public:
     at::Half* ptr_attn_value_output;
     at::Half* ptr_attn_fc_weight;
     at::Half* ptr_attn_fc_output;
-    at::Half* ptr_layer_norm_sum;
-    at::Half* ptr_layer_norm_variance;
+    float* ptr_layer_norm_sum;
+    float* ptr_layer_norm_variance;
 
     half eps = 0.00001, gama = 1, beta = 0;
 };
