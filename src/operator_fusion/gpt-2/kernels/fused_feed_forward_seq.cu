@@ -7,7 +7,7 @@
 
 using namespace souffle::gpt2;
 
-__global__ void fused_feed_forwad_pipeline_kernel(
+__global__ void fused_feed_forwad_seq_kernel(
         half* __restrict__ residual,
         half* __restrict__ input_tensor,
         half eps, half gama, half beta,
@@ -22,7 +22,6 @@ __global__ void fused_feed_forwad_pipeline_kernel(
     extern __shared__ half all_shared_mem[];
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
     cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
-    const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
 
     if(blockIdx.x < FeedForwardFC1LimitedBlocksParams::kGridBlocks){
         using namespace souffle::gpt2::FeedForwardFC1LimitedBlocksParams;
@@ -68,8 +67,7 @@ __global__ void fused_feed_forwad_pipeline_kernel(
         
         // Tile the matrix to reduce the number of blocks required 
         // to meet the constraint of global synchronization
-    for(int limit_tile_m = 0; limit_tile_m < kMTiles; ++ limit_tile_m){
-
+        for(int limit_tile_m = 0; limit_tile_m < kMTiles; ++ limit_tile_m){
         for(int limit_tile_n=0; limit_tile_n < kNTiles; ++ limit_tile_n){
         // 3. 
         const int row_warp_id = (threadIdx.x / kWarpSize) % kBlockRowWarps;
@@ -108,7 +106,7 @@ __global__ void fused_feed_forwad_pipeline_kernel(
 
         cuda::pipeline<cuda::thread_scope_thread> pipe = cuda::make_pipeline();
 
-        
+        const auto shape = cuda::aligned_size_t<alignof(float4)>(sizeof(float4));
         int stage = 0;
         int k_loop = 0;
 
@@ -251,88 +249,6 @@ __global__ void fused_feed_forwad_pipeline_kernel(
             stage = (stage + 1) % kStage;
         }
 
-        // Pipeline fc2 load weight
-        if(limit_tile_m ==1 && blockIdx.x < FeedForwardFC2Params::kGridBlocks){
-            using namespace souffle::gpt2::FeedForwardFC2Params;
-            
-            const int slicek_warp_id = threadIdx.x / kWarpSize;
-            const int row_block_id =
-                blockIdx.x % (kHiddenDim / kGemmK6BlockRowTiles / kWmmaM);
-            const int col_block_id =
-                blockIdx.x / (kHiddenDim / kGemmK6BlockRowTiles / kWmmaM);
-            
-            half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
-            matrix_b_shared[0] =
-            all_shared_mem + 3 * kGemmK6BlockSliceKTiles * kWmmaK *
-                                (kGemmK6BlockRowTiles * kWmmaM + kInputSkew);
-            matrix_b_shared[1] = all_shared_mem +
-                                3 * kGemmK6BlockSliceKTiles * kWmmaK *
-                                    (kGemmK6BlockRowTiles * kWmmaM + kInputSkew) +
-                                kGemmK6BlockColTiles * kWmmaN *
-                                    (kGemmK6BlockSliceKTiles * kWmmaK + kInputSkew);
-            matrix_b_shared[2] = all_shared_mem +
-                                3 * kGemmK6BlockSliceKTiles * kWmmaK *
-                                    (kGemmK6BlockRowTiles * kWmmaM + kInputSkew) +
-                                2 * kGemmK6BlockColTiles * kWmmaN *
-                                    (kGemmK6BlockSliceKTiles * kWmmaK + kInputSkew);
-            
-            enum {
-                kThreads = kGemmK6BlockSliceKTiles * kWarpSize,
-                kLoadALanesPerRow =
-                    kWmmaM * kGemmK6BlockRowTiles / (sizeof(float4) / sizeof(half)),
-                kLoadAColsPerIter = kThreads / kLoadALanesPerRow,
-
-                kLoadBLanesPerRow =
-                    kWmmaK * kGemmK6BlockSliceKTiles / (sizeof(float4) / sizeof(half)),
-                kLoadBColsPerIter = kThreads / kLoadBLanesPerRow,
-
-                kReduceCLanesPerRow =
-                    kWmmaM * kGemmK6BlockRowTiles / (sizeof(half2) / sizeof(half)),
-                kReduceCColsPerIter = kThreads / kReduceCLanesPerRow,
-
-                kStoreCLanesPerRow = kLoadALanesPerRow,
-                kStoreCColsPerIter = kLoadAColsPerIter,
-            };
-
-            int stage = 0;
-            int k_loop = 0;
-
-            const int a_dst_stride =
-                kLoadAColsPerIter * (kWmmaM * kGemmK6BlockRowTiles + kInputSkew);
-            const int a_src_stride = kLoadAColsPerIter * kHiddenDim;
-
-            const int b_dst_stride =
-                kLoadBColsPerIter * (kWmmaK * kGemmK6BlockSliceKTiles + kInputSkew);
-            const int b_src_stride = kLoadBColsPerIter * kHiddenDim * kHiddenSize;
-
-            // Prologue
-            #pragma unroll
-            for (int s = 0; s < kStage - 1; ++s) {
-                pipe.producer_acquire();
-                half *a_dst_base = matrix_a_shared[(stage + s) % kStage] +
-                                threadIdx.x / kLoadALanesPerRow *
-                                    (kWmmaM * kGemmK6BlockRowTiles + kInputSkew) +
-                                (threadIdx.x & (kLoadALanesPerRow - 1)) *
-                                    sizeof(float4) / sizeof(half);
-
-                const half *a_src_base =
-                    feed_forward_fc2_weight + row_block_id * kGemmK6BlockRowTiles * kWmmaM +
-                    ((k_loop + s) * kGemmK6BlockSliceKTiles * kWmmaK +
-                    threadIdx.x / kLoadALanesPerRow) *
-                        kHiddenDim +
-                    (threadIdx.x & (kLoadALanesPerRow - 1)) *
-                        (sizeof(float4) / sizeof(half));
-
-                    #pragma unroll
-                for (int i = 0;
-                    i < kGemmK6BlockSliceKTiles * kWmmaK / kLoadAColsPerIter; ++i) {
-                    cuda::memcpy_async(a_dst_base + i * a_dst_stride,
-                                    a_src_base + i * a_src_stride, shape, pipe);
-                }
-                pipe.producer_commit();
-            }
-        }// end of fc2 load weight
-
         // Epilogue
     #pragma unroll
         for (int s = kStage - 1; s >= 1; --s) {
@@ -435,22 +351,12 @@ __global__ void fused_feed_forwad_pipeline_kernel(
                 *reinterpret_cast<float4 *>(c_src_base + i * c_src_stride);
         }
         }
+        }
+    }
 
-        // Sync load fc2's weight
-        if(limit_tile_m ==1 && blockIdx.x < FeedForwardFC2Params::kGridBlocks){
-            for (int s = 0; s < kStage - 1; ++s) {
-                pipe.consumer_wait();
-                __syncthreads();
-                pipe.consumer_release();
-            }
-        }// end of sync load fc2's weight
+    grid.sync();
 
-    }// end of tileM
-}
-
-grid.sync();
-
-if(blockIdx.x < FeedForwardFC2Params::kGridBlocks){
+    if(blockIdx.x < FeedForwardFC2Params::kGridBlocks){
         using namespace souffle::gpt2::FeedForwardFC2Params;
         half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
         half *acc_shared;

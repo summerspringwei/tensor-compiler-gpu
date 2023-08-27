@@ -16,6 +16,7 @@
 #include "gpt2-large.h"
 #include "kernels/gemm.cu"
 #include "kernels/fused_feed_forward_pipeline.cu"
+#include "kernels/fused_feed_forward_seq.cu"
 #include "kernels/layer_norm.cu"
 
 using namespace souffle::gpt2;
@@ -99,11 +100,12 @@ class FeedForward {
   }
 
   void souffle_forward() {
-    // fc1_limited_blocks();
+    fc1_limited_blocks();
     // fc1();
-    // fc2();
+    fc2();
+    fused_feed_forward_seq();
     fused_feed_forward_pipelined();
-    // layer_norm();
+    layer_norm();
   }
 
   void fc1() {
@@ -242,17 +244,50 @@ class FeedForward {
     printf("fused_feed_forward shared memory %d KB, grid blocks %d\n",
            fused_shared_memory / 1024, fused_grid_blocks);
     checkCuda(cudaFuncSetAttribute(
-        (const void *)fused_feed_forwad_pipeline,
+        (const void *)fused_feed_forwad_pipeline_kernel,
         cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
         fused_shared_memory));
-    checkCuda(cudaLaunchCooperativeKernel((const void *)fused_feed_forwad_pipeline,
+    checkCuda(cudaLaunchCooperativeKernel((const void *)fused_feed_forwad_pipeline_kernel,
         dim3(fused_grid_blocks, 1, 1),
         dim3(FeedForwardFC1LimitedBlocksParams::kBlockThreads, 1, 1),
         fused_feedforward_kernel_args, fused_shared_memory));
     cudaDeviceSynchronize();
   }
 
-  
+  void fused_feed_forward_seq() {
+    void* fused_feedforward_kernel_args[] = {
+        (void *)&(ptr_input_tensor),
+        (void *)&(ptr_input_tensor),
+        (void *)&(eps), (void *)&(gama), (void *)&(beta),
+        (void *)&(ptr_feed_forward_fc1_weight),
+        (void *)&(ptr_feed_forward_fc1_output),
+        (void *)&(ptr_feed_forward_fc2_weight),
+        (void *)&(ptr_feed_forward_fc2_output),
+        (void *)&(ptr_feed_forward_fc2_layer_norm_sum),
+        (void *)&(ptr_feed_forward_fc2_layer_norm_sum_x_2),
+        (void *)&(ptr_next_attn_layer_norm_output)
+    };
+    const int fused_shared_memory = FeedForwardFC1LimitedBlocksParams::kSharedMemory;
+    // std::max(
+    //     FeedForwardFC1LimitedBlocksParams::kSharedMemory,
+    //     FeedForwardFC2Params::kSharedMemory);
+    
+    const int fused_grid_blocks = (int)FeedForwardFC1LimitedBlocksParams::kGridBlocks;
+    // std::max(
+    //     (int)FeedForwardFC1LimitedBlocksParams::kGridBlocks,
+    //     (int)FeedForwardFC2Params::kGridBlocks);
+    printf("fused_feed_forward shared memory %d KB, grid blocks %d\n",
+           fused_shared_memory / 1024, fused_grid_blocks);
+    checkCuda(cudaFuncSetAttribute(
+        (const void *)fused_feed_forwad_seq_kernel,
+        cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
+        fused_shared_memory));
+    checkCuda(cudaLaunchCooperativeKernel((const void *)fused_feed_forwad_seq_kernel,
+        dim3(fused_grid_blocks, 1, 1),
+        dim3(FeedForwardFC1LimitedBlocksParams::kBlockThreads, 1, 1),
+        fused_feedforward_kernel_args, fused_shared_memory));
+    cudaDeviceSynchronize();
+  }
 
   void print() {
     // printf("feed_forward_fc1_output:");
