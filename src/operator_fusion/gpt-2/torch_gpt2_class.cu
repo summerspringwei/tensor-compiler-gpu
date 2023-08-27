@@ -180,11 +180,11 @@ class FeedForward {
     checkCuda(cudaFuncSetAttribute(
         (const void *)gemm_k6,
         cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-        gemm_k6_shared_mem));
+        gemm_k6_shared_mem), __LINE__);
     checkCuda(cudaLaunchKernel(
         (const void *)gemm_k6, dim3(FeedForwardFC2Params::kGridBlocks, 1, 1),
         dim3(FeedForwardFC2Params::kBlockThreads, 1, 1), fused_feed_forward_fc2_kernel_args,
-        gemm_k6_shared_mem));
+        gemm_k6_shared_mem), __LINE__);
   }
 
   void layer_norm() {
@@ -210,10 +210,10 @@ class FeedForward {
     checkCuda(cudaFuncSetAttribute(
         (const void*)layer_norm_v3<384, 1280>,
         cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-        FeedForwardFC1LimitedBlocksParams::kSharedMemory));
+        FeedForwardFC1LimitedBlocksParams::kSharedMemory), __LINE__);
     checkCuda(cudaLaunchKernel(
         (const void*)layer_norm_v3<384, 1280>, dim3(kNumberSM, 1, 1),
-        dim3(kElementwiseBlockThreads, 1, 1), kernel_args, FeedForwardFC1LimitedBlocksParams::kSharedMemory));
+        dim3(kElementwiseBlockThreads, 1, 1), kernel_args, FeedForwardFC1LimitedBlocksParams::kSharedMemory), __LINE__);
     cudaDeviceSynchronize();
   }
 
@@ -246,11 +246,11 @@ class FeedForward {
     checkCuda(cudaFuncSetAttribute(
         (const void *)fused_feed_forwad_pipeline_kernel,
         cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-        fused_shared_memory));
+        fused_shared_memory), __LINE__);
     checkCuda(cudaLaunchCooperativeKernel((const void *)fused_feed_forwad_pipeline_kernel,
         dim3(fused_grid_blocks, 1, 1),
         dim3(FeedForwardFC1LimitedBlocksParams::kBlockThreads, 1, 1),
-        fused_feedforward_kernel_args, fused_shared_memory));
+        fused_feedforward_kernel_args, fused_shared_memory), __LINE__);
     cudaDeviceSynchronize();
   }
 
@@ -281,11 +281,11 @@ class FeedForward {
     checkCuda(cudaFuncSetAttribute(
         (const void *)fused_feed_forwad_seq_kernel,
         cudaFuncAttribute::cudaFuncAttributeMaxDynamicSharedMemorySize,
-        fused_shared_memory));
+        fused_shared_memory), __LINE__);
     checkCuda(cudaLaunchCooperativeKernel((const void *)fused_feed_forwad_seq_kernel,
         dim3(fused_grid_blocks, 1, 1),
         dim3(FeedForwardFC1LimitedBlocksParams::kBlockThreads, 1, 1),
-        fused_feedforward_kernel_args, fused_shared_memory));
+        fused_feedforward_kernel_args, fused_shared_memory), __LINE__);
     cudaDeviceSynchronize();
   }
 
