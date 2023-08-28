@@ -105,7 +105,7 @@ class FeedForward {
     fc2();
     fused_feed_forward_seq();
     fused_feed_forward_pipelined();
-    layer_norm();
+    // layer_norm();
   }
 
   void fc1() {

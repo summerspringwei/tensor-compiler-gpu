@@ -262,19 +262,13 @@ __global__ void fused_feed_forwad_pipeline_kernel(
                 blockIdx.x / (kHiddenDim / kGemmK6BlockRowTiles / kWmmaM);
             
             half *matrix_a_shared[kStage], *matrix_b_shared[kStage];
-            matrix_b_shared[0] =
-            all_shared_mem + 3 * kGemmK6BlockSliceKTiles * kWmmaK *
-                                (kGemmK6BlockRowTiles * kWmmaM + kInputSkew);
-            matrix_b_shared[1] = all_shared_mem +
-                                3 * kGemmK6BlockSliceKTiles * kWmmaK *
-                                    (kGemmK6BlockRowTiles * kWmmaM + kInputSkew) +
-                                kGemmK6BlockColTiles * kWmmaN *
-                                    (kGemmK6BlockSliceKTiles * kWmmaK + kInputSkew);
-            matrix_b_shared[2] = all_shared_mem +
-                                3 * kGemmK6BlockSliceKTiles * kWmmaK *
-                                    (kGemmK6BlockRowTiles * kWmmaM + kInputSkew) +
-                                2 * kGemmK6BlockColTiles * kWmmaN *
-                                    (kGemmK6BlockSliceKTiles * kWmmaK + kInputSkew);
+            matrix_a_shared[0] = all_shared_mem;
+            matrix_a_shared[1] =
+                all_shared_mem + kGemmK6BlockSliceKTiles * kWmmaK *
+                                    (kGemmK6BlockRowTiles * kWmmaM + kInputSkew);
+            matrix_a_shared[2] =
+                all_shared_mem + 2 * kGemmK6BlockSliceKTiles * kWmmaK *
+                                    (kGemmK6BlockRowTiles * kWmmaM + kInputSkew);
             
             enum {
                 kThreads = kGemmK6BlockSliceKTiles * kWarpSize,
