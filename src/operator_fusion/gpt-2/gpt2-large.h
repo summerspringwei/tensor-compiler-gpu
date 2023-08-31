@@ -209,11 +209,11 @@ namespace FeedForwardFC2Params{
         KGEMMFFN = 384,
         KGEMMFFK = 5120,
 
-        kGemmK6BlockRowTiles = 8,
-        kGemmK6BlockColTiles = 4,
+        kGemmK6BlockRowTiles = 4,
+        kGemmK6BlockColTiles = 6,
         // May set kGEEMK6BlockSliceKTiles = 5 for A100
         kGemmK6BlockSliceKTiles = 4,
-        kChunkK = 2,
+        kChunkK = 4,
         kBlockRowWarps = 2,
         kBlockColWarps = 2,
 
