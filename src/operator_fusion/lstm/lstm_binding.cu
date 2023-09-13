@@ -64,7 +64,8 @@ torch::Tensor fused_lstm(torch::Tensor input_timestep, torch::Tensor weight_inpu
         (void *)&(ptr_output_buffer)
         };
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(output_timestep.type(), "fused_attn_qkv_matmul_transpose", [&]{
-    checkCuda(cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), kernel_args, 48*1024));
+    // checkCuda(cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v9<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), kernel_args, 48*1024));
+    checkCuda(cudaLaunchCooperativeKernel((void*)lstm_reuse_shared_memory_v10_vec<1, 10, 256, 100>, dim3(320, 1, 1), dim3(32, 8, 1), kernel_args, 48*1024));
   });
   cudaDeviceSynchronize();
   return output_timestep;
