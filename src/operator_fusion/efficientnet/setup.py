@@ -8,8 +8,9 @@ CUDA_HOME = os.getenv('CUDA_HOME') if os.getenv('CUDA_HOME')!=None else "/usr/lo
 
 extra_compile_args = {"cxx": []}
 extra_compile_args["nvcc"] = [
-            # "-g",
-            "-O3",
+            "-g",
+            "-G",
+            "-O0",
             "-DCUDA_HAS_FP16=1",
             "-DUSE_FP16=ON",
             "-DCUDA_ARCH_BIN=80",
@@ -17,7 +18,7 @@ extra_compile_args["nvcc"] = [
             "-U__CUDA_NO_HALF_CONVERSIONS__",
             "-U__CUDA_NO_HALF2_OPERATORS__",
             ]
-setup(name='lstm_binding',
+setup(name='efficientnet_se_module_binding',
       ext_modules=[
         cpp_extension.CUDAExtension(
           'efficientnet_se_module_binding', 
