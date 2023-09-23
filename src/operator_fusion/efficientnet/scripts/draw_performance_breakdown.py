@@ -2,6 +2,9 @@ import xlrd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as font_manager
+import matplotlib
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
 
 def rgb_to_hex(r, g, b):
   color = '#{:02x}{:02x}{:02x}'.format(r, g, b)
@@ -56,7 +59,7 @@ def draw_bars(species, fusion_latency, fig_name, max_ylim):
       # rects = ax.bar(x + offset, width, label=attr)
       # ax.bar_label(rects, padding=3)
       multiplier += 1
-    
+
     ax.set_ylabel("Speedup", fontname="monospace", fontdict=font_dict)
     # ax.set_title("EfficientNet-b0 swish module")
     for tick in ax.get_xticklabels():
@@ -69,7 +72,7 @@ def draw_bars(species, fusion_latency, fig_name, max_ylim):
     plt.savefig(fig_name)
 
 
-def draw_efficientnet_plot(group_data, normalize=False):  
+def draw_efficientnet_plot(group_data, normalize=False):
     unfused_list, tvm_fused_list, one_kernel_list, fused_list = [], [], [], []
     for group in group_data:
         group = np.array(group)
