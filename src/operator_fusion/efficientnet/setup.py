@@ -8,9 +8,10 @@ CUDA_HOME = os.getenv('CUDA_HOME') if os.getenv('CUDA_HOME')!=None else "/usr/lo
 
 extra_compile_args = {"cxx": []}
 extra_compile_args["nvcc"] = [
-            "-g",
-            "-G",
-            "-O0",
+            # "-g",
+            # "-G",
+            # "-O0",
+            "-O3",
             "-DCUDA_HAS_FP16=1",
             "-DUSE_FP16=ON",
             "-DCUDA_ARCH_BIN=80",
