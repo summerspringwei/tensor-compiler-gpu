@@ -42,3 +42,6 @@ tmp.*
 *.tmp
 *release*
 *.sass
+*.sqlite
+*.nsys-rep
+*.ncu-rep
