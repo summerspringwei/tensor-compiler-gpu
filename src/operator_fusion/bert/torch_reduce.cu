@@ -398,8 +398,8 @@ void test_reduce(int round_count, int loop, int func_version){
   multi_func(func_version);
   cudaDeviceSynchronize();
 
-  my_compare(t_reduce_mean, reduce_mean, 1/16, 1024, 1);
-  my_compare(t_reduce_variance, reduce_variance, 1/16, 1024, 1);
+  my_compare(t_reduce_mean, reduce_mean, 1/16, 1024, CMPPrintLevel::kPrintDiff);
+  my_compare(t_reduce_variance, reduce_variance, 1/16, 1024, CMPPrintLevel::kPrintDiff);
   // my_compare(t_src_layer_norm, src_layer_norm, 1/16, 1024);
 
   cudaEvent_t startEvent, stopEvent;

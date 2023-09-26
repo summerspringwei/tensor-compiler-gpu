@@ -59,6 +59,7 @@ std::vector<torch::Tensor> torch_efficientnet_se_module_v2_short_cut_fused(
   
   if (opt_level == 0) {
     // avg pool
+    printf("Simple fuse\n");
     {
     void *se_kernel_args[] = {(void *)&(ptr_input),
                               (void *)&(ptr_reduce_output),
@@ -112,6 +113,7 @@ std::vector<torch::Tensor> torch_efficientnet_se_module_v2_short_cut_fused(
                              se_kernel_args, shared_memory_size), __LINE__);
     }
   }else if (opt_level == 1){// sigmoid fuse
+  printf("sigmoid fuse\n");
       void* se_kernel_args[] = {
         (void *)&(ptr_input),
         (void *)&(ptr_reduce_output),
@@ -131,6 +133,7 @@ std::vector<torch::Tensor> torch_efficientnet_se_module_v2_short_cut_fused(
       checkCuda(cudaLaunchCooperativeKernel((const void *)func_ptr, dim3(in_channel / tile_size_in_channel, 1, 1),
                   dim3(kBlockSize, 1, 1), se_kernel_args, shared_memory_size), __LINE__);
   }else if (opt_level == 2){// short cut fuse
+    printf("short cut fuse\n");
     void *se_kernel_args[] = {(void *)&(ptr_input),
                             (void *)&(ptr_reduce_output),
                             (void *)&(ptr_se_reduce_weight),

@@ -9,6 +9,7 @@ project(tensor-compiler-gpu LANGUAGES C CXX CUDA)
 include(CheckLanguage)
 check_language(CUDA)
 
+execute_process(COMMAND bash -c "")
 # Declare variables
 
 set(CUDA_LIB "${CUDA_HOME}/lib64")
@@ -34,6 +35,8 @@ link_directories("${CUTLASS_HOME}/build/tools/library")
 link_directories(${CUDA_LIB})
 link_directories("${TORCH_HOME}/lib")
 link_directories("${TORCH_HOME}/lib/" ${CUDA_LIB})
+
+
 
 # if(${CMAKE_BUILD_TYPE} EQUAL "Debug")
 #   message(INFO "Build with debug option")

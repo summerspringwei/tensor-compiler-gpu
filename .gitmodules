@@ -1,0 +1,3 @@
+[submodule "third_party/libnpy"]
+	path = third_party/libnpy
+	url = https://github.com/llohse/libnpy.git

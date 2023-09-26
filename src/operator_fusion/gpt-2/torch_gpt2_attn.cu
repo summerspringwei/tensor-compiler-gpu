@@ -311,7 +311,7 @@ class Attn {
         printf("\n attn_fc_output:\n ");
         torch::print(attn_fc_output);
         // assert(torch::allclose(t_attn_fc_output, attn_fc_output, 1e-1, 1e-1));
-        my_compare(t_attn_fc_output, attn_fc_output, 1e-1, 1e-1);
+        my_compare(t_attn_fc_output, attn_fc_output, 1e-1, 1e-1, CMPPrintLevel::kPrintDiff);
         printf("\n t_attn_fc_short_cut_add:\n ");
         torch::print(t_attn_fc_short_cut_add);
         printf("\n t_attn_fc_layernorm_output\n ");

@@ -83,8 +83,8 @@ void efficient_se_module(int round_cout=1, int loop=1, int func_id=0, size_t sha
   torch::print(t_reduce_output);
 
   // Compare results
-  my_compare(t_reduce_output, reduce_output, 1.0/32, 1.0/1024*1024, 1);
-  my_compare(t_se_reduce_output, se_reduce_output, 1.0/32, 1.0/1024*1024, 1);
+  my_compare(t_reduce_output, reduce_output, 1.0/32, 1.0/1024*1024, CMPPrintLevel::kPrintDiff);
+  my_compare(t_se_reduce_output, se_reduce_output, 1.0/32, 1.0/1024*1024, CMPPrintLevel::kPrintDiff);
   
   // torch::print(se_reduce_output);
   // torch::print(se_expand_output);

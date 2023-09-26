@@ -19,7 +19,7 @@
 #include "kernels/swin_fused_ffn_m256n2048k512_m256n512k2048_pipeline.cu"
 
 
-float test_fused_feed_forward(int round_cout = 1, int loop = 1, int func_id = 0, int compare_level=0)
+float test_fused_feed_forward(int round_cout = 1, int loop = 1, int func_id = 0, CMPPrintLevel compare_level=kPrintDiff)
 {
   enum{
     batch_size = 1,
