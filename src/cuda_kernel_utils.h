@@ -40,6 +40,12 @@ float blockReduceSum(float val) {
   return val;
 }
 
+__inline__ __device__ float warpReduceMax(float val) {
+  for (int mask = 16; mask > 0; mask >>= 1)
+    val = max(val, __shfl_xor_sync(0xffffffff, val, mask, 32));
+  return val;
+}
+
 __device__ __forceinline__ float sigmoid(float x){
     return (1.0f / (1+exp(-x)));
 }
