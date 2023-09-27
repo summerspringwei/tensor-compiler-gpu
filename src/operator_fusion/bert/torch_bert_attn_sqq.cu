@@ -12,7 +12,7 @@
 #include "torch/all.h"
 
 #include "kernels/gemm.cu"
-
+#include "kernels/softmax.cu"
 #include "kernels/bert.h"
 // #include "kernels/gemm_three_stages.h"
 
@@ -32,28 +32,30 @@ float test_bert_attn(int round_cout=1, int loop=1, int func_id=0){
   const int d_model = num_heads * hidden_size;
   // Load weight from model file
   auto load_file_query = std::vector<float>(d_model*d_model);
+  auto load_file_feed_forward = std::vector<float>(d_model*d_intermedia);
   std::vector<unsigned long> shape = {d_model, d_model};
-  bool fortran_order;
-  std::string dir_path("/home/xiachunwei/models/bert_weights/");
-  npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_attention_self_query_kernel_0.npy"), 
-    shape, fortran_order,  load_file_query);
+
+  // bool fortran_order;
+  // std::string dir_path("/home/xiachunwei/models/bert_weights/");
+  // npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_attention_self_query_kernel_0.npy"), 
+  //   shape, fortran_order,  load_file_query);
+  // npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_attention_self_key_kernel_0.npy"), 
+  //   shape, fortran_order,  load_file_query);
+  // npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_attention_self_value_kernel_0.npy"), 
+  //   shape, fortran_order,  load_file_query);
+  // npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_attention_output_dense_kernel_0.npy"), 
+  //   shape, fortran_order,  load_file_query);
+  // npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_intermediate_dense_kernel_0.npy"), 
+  //   shape, fortran_order,  load_file_feed_forward);
+  // npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_output_dense_kernel_0.npy"), 
+  //   shape, fortran_order,  load_file_feed_forward);
+  
   auto file_query = torch::from_blob(load_file_query.data(), {d_model, d_model}).clone().to(torch::kCUDA);
-  npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_attention_self_key_kernel_0.npy"), 
-    shape, fortran_order,  load_file_query);
   auto file_key = torch::from_blob(load_file_query.data(), {d_model, d_model}).clone().to(torch::kCUDA);
-  npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_attention_self_value_kernel_0.npy"), 
-    shape, fortran_order,  load_file_query);
   auto file_value = torch::from_blob(load_file_query.data(), {d_model, d_model}).clone().to(torch::kCUDA);
   auto qkv_weight = torch::cat({file_query, file_key, file_value}, 0).reshape({3, d_model, d_model}).toType(torch::kHalf);
-  npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_attention_output_dense_kernel_0.npy"), 
-    shape, fortran_order,  load_file_query);
   auto attn_fc_weight = torch::from_blob(load_file_query.data(), {d_model, d_model}).clone().toType(torch::kHalf).to(torch::kCUDA);
-  auto load_file_feed_forward = std::vector<float>(d_model*d_intermedia);
-  npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_intermediate_dense_kernel_0.npy"), 
-    shape, fortran_order,  load_file_feed_forward);
   auto feed_forward_fc1_weight = torch::from_blob(load_file_feed_forward.data(), {d_model, d_intermedia}).clone().toType(torch::kHalf).to(torch::kCUDA);
-  npy::LoadArrayFromNumpy<float>(dir_path+std::string("bert_encoder_layer_0_output_dense_kernel_0.npy"), 
-    shape, fortran_order,  load_file_feed_forward);
   auto feed_forward_fc2_weight = torch::from_blob(load_file_feed_forward.data(), {d_intermedia, d_model}).clone().toType(torch::kHalf).to(torch::kCUDA);
 
   // Create dummy data

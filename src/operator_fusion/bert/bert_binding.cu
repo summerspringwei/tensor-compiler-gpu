@@ -14,6 +14,9 @@
 #include "../torch_utils.h"
 
 #include "kernels/gemm.cu"
+#include "kernels/softmax.cu"
+#include "kernels/layer_norm.cu"
+
 
 using namespace fuselage::experiments::networks::bert;
 
@@ -112,12 +115,13 @@ souffle_bert_layer(torch::Tensor src, torch::Tensor qkv_weight,
   int64_t *ptr_feed_forward_profile_clock =
       feed_forward_profile_clock.data_ptr<int64_t>();
   half eps = 0.00001, gama = 1, beta = 0;
+  const half scalar = 1 / sqrtf(kHeadSize * 1.0f);
 
   const size_t fused_bert_shared_mem = 108 * 1024;
-  if (opt_level < 2) {
+  if (opt_level <= 2) {
 
     // Without horizontal fusion
-    if (opt_level == 0) {
+    if (opt_level == 1) {
       // 1. fused qkv matmul
       {
         const int gemm_k4_blocks =
@@ -168,7 +172,7 @@ souffle_bert_layer(torch::Tensor src, torch::Tensor qkv_weight,
       }
     }
     // With horizontal fusion
-    else if (opt_level == 1) {
+    else if (opt_level == 2) {
       // 1. fused qkv matmul
       {
         void *fused_attn_kernel_args[] = {
@@ -230,6 +234,13 @@ souffle_bert_layer(torch::Tensor src, torch::Tensor qkv_weight,
                     fused_attn_query_key_kernel_args, gemm_k2_shared_mem),
                 __LINE__);
         printf("query-key\n");
+        void* softmax_kernel_args[] = {
+            (void *)&(ptr_query_key_output), (void *)&(ptr_t_attn_mask),
+            (void *)&(scalar)
+        };
+        checkCuda(cudaLaunchKernel((const void*)softmax, dim3(kBatchSize * kSeqLength * kHeadNum), 
+            dim3(kWarpSize), softmax_kernel_args), __LINE__);
+        printf("softmax\n");
     }
     // 3. attn value
     {
@@ -296,6 +307,17 @@ souffle_bert_layer(torch::Tensor src, torch::Tensor qkv_weight,
                                  gemm_k4_shared_mem),
                 __LINE__);
         printf("attn_fc\n");
+        void* layer_norm_kernel_args[] = {
+            (void *)&(eps),
+            (void *)&(gama),
+            (void *)&(beta),
+            (void *)&(ptr_attn_fc_output),
+            (void *)&(ptr_attn_layer_norm_sum),
+            (void *)&(ptr_attn_layer_norm_variance),
+            (void *)&(ptr_attn_fc_output)
+        };
+        checkCuda(cudaLaunchKernel((const void*)layer_norm_v1<kBatchSize * kSeqLength, kHiddenDim>, 
+            dim3(108, 1, 1), dim3(256, 1, 1), layer_norm_kernel_args, 48*1024), __LINE__);
     }
     // 5. FC1 inputA:(768,3072), inputB: (384,768), output:(384,3072)
     {
@@ -359,9 +381,20 @@ souffle_bert_layer(torch::Tensor src, torch::Tensor qkv_weight,
                     gemm_k6_shared_mem),
                 __LINE__);
         printf("feedforward_fc2\n");
+        void* layer_norm_kernel_args[] = {
+            (void *)&(eps),
+            (void *)&(gama),
+            (void *)&(beta),
+            (void *)&(ptr_feed_forward_fc2_output),
+            (void *)&(ptr_attn_layer_norm_sum),
+            (void *)&(ptr_attn_layer_norm_variance),
+            (void *)&(ptr_feed_forward_fc2_output)
+        };
+        checkCuda(cudaLaunchKernel((const void*)layer_norm_v1<kBatchSize * kSeqLength, kHiddenDim>, 
+            dim3(108, 1, 1), dim3(256, 1, 1), layer_norm_kernel_args, 48*1024), __LINE__);;
     }
-  } // end of opt_level < 2
-  else if (opt_level == 2) {
+  } // end of opt_level <= 2
+  else if (opt_level == 3) {
     void *fused_bert_attn_kernel_args[] = {
         (void *)&(ptr_weight_qkv),
         (void *)&(ptr_src),
@@ -435,7 +468,7 @@ souffle_bert_layer(torch::Tensor src, torch::Tensor qkv_weight,
                                           fused_feed_forward_shared_mem_size),
               __LINE__);
     printf("fused_feedforward\n");
-  } else if (opt_level == 3) {
+  } else if (opt_level == 4) {
     void *fused_bert_attn_kernel_args[] = {
         (void *)&(ptr_weight_qkv),
         (void *)&(ptr_src),
